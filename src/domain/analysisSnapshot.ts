@@ -86,10 +86,40 @@ const subjectBaseSchema = z.object({
   sha256: digestSchema,
 });
 const subjectSchema = withEvidenceSubjectDeclaration(subjectBaseSchema);
+const subjectFormatSchema = z.enum([
+  ...formatSchema.options,
+  "hopper",
+  "directory",
+  "file",
+  "unknown",
+  "javascript-bundle",
+  "entitlements",
+]);
+// Snapshot entries retain the same raw-only architecture boundary as targets.
+const subjectSchema = z.discriminatedUnion("format", [
+  subjectBaseSchema.extend({
+    format: subjectFormatSchema.exclude(["raw-binary"]),
+    architecture: architectureSchema
+      .exclude([...RAW_ONLY_ARCHITECTURES])
+      .nullable(),
+  }),
+  subjectBaseSchema.extend({
+    format: z.literal("raw-binary"),
+    architecture: architectureSchema.nullable(),
+  }),
+]);
+/** Companion identity that partitions session and snapshot reuse by dSYM. */
+const debugCompanionSchema = z.object({
+  uuid: z.string(),
+  member_sha256: z.string(),
+});
+
 const targetIdentitySchema = z.object({
   sha256: digestSchema,
   kind: kindSchema,
   architecture: architectureSchema.nullable(),
+  /** Absent in snapshots written before companion admission; null when none. */
+  debug_companion: debugCompanionSchema.nullable().default(null),
 });
 const targetSchema = z.discriminatedUnion("format", [
   targetIdentitySchema.extend({
@@ -365,29 +395,26 @@ const canonicalJson = (value: unknown): string => {
 };
 
 /** Project a binary into the path-free identity used for cache invalidation. */
-export const snapshotTarget = (target: BinaryTarget): AnalysisSnapshotTarget =>
-  target.format === "raw-binary"
-    ? {
-        sha256: target.sha256,
-        kind: target.kind,
-        architecture: target.architecture,
-        format: target.format,
-        entry_point: target.entryPoint,
-      }
-    : target.format === "gamecube-dol"
-      ? {
-          sha256: target.sha256,
-          kind: target.kind,
-          architecture: target.architecture,
-          format: target.format,
-          entry_point: target.entryPoint,
-        }
-      : {
-          sha256: target.sha256,
-          kind: target.kind,
-          architecture: target.architecture ?? null,
-          format: target.format,
-        };
+export const snapshotTarget = (
+  target: BinaryTarget,
+): AnalysisSnapshotTarget => {
+  const identity = {
+    sha256: target.sha256,
+    kind: target.kind,
+    architecture: target.architecture ?? null,
+    debug_companion:
+      (target.format === "mach-o" || target.format === "mach-o-universal") &&
+      target.debugCompanion !== undefined
+        ? {
+            uuid: target.debugCompanion.uuid,
+            member_sha256: target.debugCompanion.memberSha256,
+          }
+        : null,
+  };
+  return target.format === "raw-binary"
+    ? { ...identity, format: target.format, entry_point: target.entryPoint }
+    : { ...identity, format: target.format };
+};
 
 /** Build the immutable provider/profile binding used by a cached snapshot. */
 export const snapshotBinding = (
@@ -407,12 +434,32 @@ export const snapshotMatchesTarget = (
   snapshot.kind === target.kind &&
   snapshot.format === target.format &&
   snapshot.architecture === (target.architecture ?? null) &&
+  sameDebugCompanion(snapshot, target) &&
   (snapshot.format !== "raw-binary" ||
     (target.format === "raw-binary" &&
       snapshot.entry_point === target.entryPoint)) &&
   (snapshot.format !== "gamecube-dol" ||
     (target.format === "gamecube-dol" &&
       snapshot.entry_point === target.entryPoint));
+
+/** A dSYM change is a different analysis input, not the same target. */
+const sameDebugCompanion = (
+  snapshot: AnalysisSnapshotTarget,
+  target: BinaryTarget,
+): boolean => {
+  const selected =
+    (target.format === "mach-o" || target.format === "mach-o-universal") &&
+    target.debugCompanion !== undefined
+      ? target.debugCompanion
+      : undefined;
+  const recorded = snapshot.debug_companion ?? null;
+  if (selected === undefined) return recorded === null;
+  return (
+    recorded !== null &&
+    recorded.uuid === selected.uuid &&
+    recorded.member_sha256 === selected.memberSha256
+  );
+};
 
 /** Compare a snapshot binding with the selected concrete analysis profile. */
 export const snapshotMatchesProfile = (
