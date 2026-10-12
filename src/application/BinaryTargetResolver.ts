@@ -43,6 +43,12 @@ import type {
   PeCodeViewRecord,
   UniversalMachOSlice,
 } from "../domain/binaryTargetTypes.js";
+import {
+  isMachOFormat,
+  type BinaryTarget,
+  type MachODebugCompanion,
+} from "../domain/binaryTargetTypes.js";
+import { admitDebugCompanion } from "./DebugCompanionAdmission.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { readMipsElfMetadata } from "./MipsElfMetadata.js";
 import { validateElfDeclaredRanges } from "../domain/elfDeclaredRanges.js";
@@ -123,6 +129,8 @@ export interface BinaryTargetResolverOptions {
   readonly formatHint?: ExecutableFormatHint;
   readonly architecture?: BinaryArchitecture;
   readonly entryPoint?: string;
+  /** Caller-selected dSYM bundle; admitted only for Mach-O executable targets. */
+  readonly dsymPath?: string;
   readonly signal?: AbortSignal;
   readonly resources?: ArtifactResourceScope;
 }
@@ -141,6 +149,16 @@ export const parseBinaryTarget = async (
 > => {
   const cwd = options.cwd ?? process.cwd();
   const { signal } = options;
+  const dsymPath = options.dsymPath;
+  const formatHint = options.formatHint;
+  if (dsymPath !== undefined && formatHint !== undefined)
+    return err(
+      new BinaryTargetError(
+        options.dsymPath,
+        "dsym_path applies only to detected Mach-O executable targets, not to explicit headerless formats",
+        { constraint: "debug_companion_rejected" },
+      ),
+    );
   const candidate = absoluteCallerPath(input, { cwd });
   // Failures before canonicalization concern the selected path itself; later
   // failures concern the canonical path opened with symbolic links rejected.

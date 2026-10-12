@@ -39,8 +39,18 @@ export const openBinaryInputSchema = z
       ),
     provider_id: analysisProviderSelectorSchema.optional(),
     snapshot_path: snapshotPathSchema.optional(),
+    dsym_path: dsymPathSchema.optional(),
   })
   .superRefine((value, context) => {
+    if (value.dsym_path !== undefined && value.format !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["dsym_path"],
+        message:
+          "dsym_path applies only to detected Mach-O executable targets, not to explicit headerless formats",
+      });
+      return;
+    }
     const pairing = rawBinarySelectionError({
       ...(value.format === undefined ? {} : { format: value.format }),
       ...(value.architecture === undefined
