@@ -31,6 +31,7 @@ import {
 } from "node:fs/promises";
 import { extname } from "node:path";
 
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { BinaryTargetError } from "../domain/configurationErrors.js";
 import {
   sameRegularFileState,

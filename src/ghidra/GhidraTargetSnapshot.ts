@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { open, rm, type FileHandle } from "node:fs/promises";
 import { extname, join } from "node:path";
 import {
   withArtifactRegularFile,
