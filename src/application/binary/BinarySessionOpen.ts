@@ -1,3 +1,4 @@
+import type { ArtifactResourceScope } from "../../artifacts/ArtifactResourceScope.js";
 import type { ExecutableFormatHint } from "../../domain/dosCom.js";
 import type {
   BinaryArchitecture,

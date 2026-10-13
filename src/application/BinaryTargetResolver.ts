@@ -48,6 +48,11 @@ import {
   type BinaryTarget,
   type MachODebugCompanion,
 } from "../domain/binaryTargetTypes.js";
+import {
+  RegularFileCleanupFailure,
+  withRegularFile,
+} from "./RegularFileRead.js";
+import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { admitDebugCompanion } from "./DebugCompanionAdmission.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { readMipsElfMetadata } from "./MipsElfMetadata.js";
