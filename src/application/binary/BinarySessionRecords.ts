@@ -7,10 +7,10 @@ import type { EvidenceBundle } from "../../domain/evidenceBundle.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { evidenceBundleForTarget } from "../../domain/evidenceBundle.js";
 import {
-  EvidenceFileError,
   EvidenceIntegrityError,
   AnalysisSnapshotMismatchError,
 } from "../../domain/evidenceErrors.js";
+import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import type { AnalysisInputError } from "../../domain/analysisErrorCore.js";
 import type { UnknownRegistryError } from "../../domain/unknownRegistryError.js";
