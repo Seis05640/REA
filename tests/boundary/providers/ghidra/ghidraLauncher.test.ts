@@ -655,6 +655,14 @@ describe("Ghidra existing project", () => {
     { mipsSoftFloat: true as const },
     { seedPath: "/tmp/runtime/seeds/seeds.tsv" },
     { disabledAnalyzers: ["Decompiler Parameter ID"] },
+    {
+      pdbCompanion: {
+        path: "/tmp/runtime/app.pdb",
+        sha256: "c".repeat(64),
+        guid: "00000000-0000-0000-0000-000000000000",
+        age: 1,
+      },
+    },
   ])(
     "rejects the import-only option %o with an existing project",
     (conflict) => {

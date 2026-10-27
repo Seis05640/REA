@@ -241,6 +241,7 @@ export const parseEnvironment = (
           "REA_GHIDRA_SEED_FILE",
           "REA_GHIDRA_DISABLED_ANALYZERS",
           "REA_GHIDRA_NATIVEAOT_JAR",
+          "REA_GHIDRA_PDB_FILE",
         ].filter((setting) => environment[setting] !== undefined);
   if (incompatible.length > 0)
     return err(

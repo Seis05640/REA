@@ -811,6 +811,7 @@ type ExistingProjectOptions = Pick<
   | "mipsSoftFloat"
   | "seedPath"
   | "disabledAnalyzers"
+  | "pdbCompanion"
 > & { readonly analysisSeeds?: GhidraSeedCommitment };
 
 /** Admit existing-project compatibility before any runtime writes. */
@@ -858,6 +859,10 @@ const validateExistingProjectOptions = (
     )
       throw new Error(
         "An existing project opens without analysis; analysis seeds and analyzer overrides do not apply.",
+      );
+    if (options.pdbCompanion !== undefined)
+      throw new Error(
+        "An existing project opens without analysis; a caller PDB applies only to a fresh import.",
       );
   }
 };
