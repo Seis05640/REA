@@ -248,6 +248,20 @@ export const createdNestedClock = (
   return stamped ? nestedRule(field, value, members, evidence.type) : undefined;
 };
 
+/** Whether an application that answers a clock as `written` stores it as `read` spells it: both ISO, the read at a coarser precision and otherwise alike. Replay and serving respell an update's clocks by this one rule. */
+export const readSpellsCoarser = (
+  written: JsonValue | undefined,
+  read: JsonValue | undefined,
+): boolean => {
+  const [value, stored] = [readClock(written), readClock(read)];
+  return (
+    value?.format.kind === "iso" &&
+    stored?.format.kind === "iso" &&
+    stored.format.fraction < value.format.fraction &&
+    same({ ...stored.format, fraction: 0 }, { ...value.format, fraction: 0 })
+  );
+};
+
 /** An update's fields as its application stores them: each clock at the coarser precision its plan's read-back spelled it. */
 export const readSpelledClocks = (
   rules: readonly FieldRule[],
@@ -258,16 +272,13 @@ export const readSpelledClocks = (
   const fields = { ...written };
   for (const rule of rules) {
     if (rule.rule !== "clock") continue;
-    const value = readClock(ownMember(written, rule.field));
-    const stored = readClock(ownMember(read, rule.field));
-    if (
-      value?.format.kind !== "iso" ||
-      stored?.format.kind !== "iso" ||
-      stored.format.fraction >= value.format.fraction ||
-      !same({ ...stored.format, fraction: 0 }, { ...value.format, fraction: 0 })
-    )
-      continue;
-    const spelled = formatClock(value.ms, stored.format);
+    const answered = ownMember(written, rule.field);
+    const shown = ownMember(read, rule.field);
+    if (!readSpellsCoarser(answered, shown)) continue;
+    const spelled = formatClock(
+      readClock(answered)!.ms,
+      readClock(shown)!.format,
+    );
     if (spelled !== undefined) setOwnMember(fields, rule.field, spelled);
   }
   return fields;
@@ -694,32 +705,34 @@ export const pinnedEchoes = (
 };
 
 /**
- * An update's fields as stored: each nested clock as the first later read of the entity shows it restamped, and each
- * clock as that read spells the same instant at a coarser precision, else as the call showed it.
+ * A write's fields as stored: each nested clock as the first later read of the entity shows it restamped, and, for an
+ * update, each clock as that read spells the same instant at a coarser precision (as serving stores it), else as the
+ * call showed it.
  */
 export const restampedFields = (
   search: ObservationSearch,
   target: Parameters<typeof laterObservation>[1],
   shown: JsonObject,
   rules: readonly FieldRule[],
+  update: boolean,
 ): JsonObject => {
   const nested = rules.flatMap((rule) =>
     rule.rule === "nested-clock" ? [rule] : [],
   );
-  const clocks = rules.flatMap((rule) =>
-    rule.rule === "clock" ? [rule.field] : [],
-  );
+  // Serving respells only an update's clocks, so a create keeps them as answered.
+  const clocks = update
+    ? rules.flatMap((rule) => (rule.rule === "clock" ? [rule.field] : []))
+    : [];
   if (nested.length === 0 && clocks.length === 0) return shown;
   const later = laterObservation(search, target);
   const fields = { ...shown };
   for (const field of clocks) {
     const read = ownMember(later?.object, field);
     if (
-      read !== undefined &&
-      !same(read, ownMember(shown, field)) &&
-      respelledInstant(ownMember(shown, field), read)
+      respelledInstant(ownMember(shown, field), read) &&
+      readSpellsCoarser(ownMember(shown, field), read)
     )
-      setOwnMember(fields, field, read);
+      setOwnMember(fields, field, read!);
   }
   for (const rule of nested) {
     const read = storedRestamp(

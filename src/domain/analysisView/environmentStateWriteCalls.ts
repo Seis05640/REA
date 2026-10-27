@@ -131,6 +131,8 @@ const sameObserved = (left: ObservedValue, right: ObservedValue): boolean =>
 /** The equality facts a modelled update showed, scalar inputs it sent, and fields it kept, which later rules must reproduce. */
 export interface UpdateCall {
   readonly shown: ReadonlyMap<string, ObservedValue>;
+  /** Members its answer left out that the read after it showed, which a default must agree with too. */
+  readonly read: ReadonlyMap<string, ObservedValue>;
   readonly sent: ReadonlyMap<string, JsonValue>;
   readonly sentMembers: ReadonlySet<string>;
   readonly kept: readonly string[];
@@ -363,12 +365,14 @@ export const defaultsDisagree = (
 ): boolean =>
   (defaults ?? []).some(
     ({ member, value }) =>
-      calls.earlier.some(
-        (call) =>
+      calls.earlier.some((call) => {
+        const stored = call.shown.get(member) ?? call.read.get(member);
+        return (
           !call.sentMembers.has(member) &&
-          call.shown.has(member) &&
-          !same(call.shown.get(member), observedValue(value)),
-      ) ||
+          stored !== undefined &&
+          !same(stored, observedValue(value))
+        );
+      }) ||
       (calls.sent !== undefined &&
         calls.after !== undefined &&
         !Object.hasOwn(calls.sent, member) &&
@@ -390,6 +394,8 @@ export const rememberCall = (
     readonly after: JsonObject;
     readonly sent: JsonObject;
     readonly kept: readonly string[];
+    /** The entity as the read after the call showed it, when one did. */
+    readonly read?: JsonObject | undefined;
   },
   /** Clocks the call left as they were in its own second, which show neither a stamp nor a kept value. */
   sameSecond: readonly string[],
@@ -404,8 +410,14 @@ export const rememberCall = (
     ]),
   );
   for (const field of unstamped) shown.delete(field);
+  const read = new Map(
+    Object.entries(call.read ?? {})
+      .filter(([field]) => !Object.hasOwn(call.after, field))
+      .map(([field, value]) => [field, observedValue(value)]),
+  );
   const facts = {
     shown,
+    read,
     sent: scalars(call.sent),
     sentMembers: new Set(Object.keys(call.sent)),
     kept,
@@ -414,6 +426,7 @@ export const rememberCall = (
     64 +
       jsonTextCodeUnits([
         ...facts.shown,
+        ...facts.read,
         ...facts.sent,
         [...facts.sentMembers],
         kept,

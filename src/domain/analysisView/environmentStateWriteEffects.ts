@@ -54,7 +54,11 @@ import {
   type Observed,
   type ObservedRead,
 } from "./environmentStateWriteObserve.js";
-import { plannedBody, restampedFields } from "./environmentStateWriteStamps.js";
+import {
+  plannedBody,
+  readSpellsCoarser,
+  restampedFields,
+} from "./environmentStateWriteStamps.js";
 import { readClock } from "./environmentStateWriteValues.js";
 import type { CreateEvidence } from "./environmentStateWriteExplain.js";
 import {
@@ -516,7 +520,7 @@ const spelledReadBack = (
       ownMember(call.after, rule.field),
       ownMember(read.object, rule.field),
     ];
-    return !same(own, shown) && respelledInstant(own, shown);
+    return respelledInstant(own, shown) && readSpellsCoarser(own, shown);
   });
   return respelled
     ? { ordinal: read.ordinal, pointer: read.pointer, shape: "item" }
@@ -683,6 +687,11 @@ export const updateEntity = (
     refuse(draft, step, "unexplained-change");
     return recorded();
   }
+  // What the read after the call showed, for members its answer left out that a default must agree with.
+  const read = laterObservation(
+    searchFrom(context, step),
+    itemReads(context, { type, idField, collection, id }),
+  )?.object;
   // Each call must agree with the plan; one on an unknown entity cannot be checked, so it adds nothing to the plan.
   if (
     built(draft) &&
@@ -698,7 +707,7 @@ export const updateEntity = (
       defaultsDisagree(draft.plan.body?.defaults, {
         earlier: [],
         sent: body,
-        after: after.object,
+        after: { ...read, ...after.object },
       }))
   ) {
     if (!unknown) refuse(draft, step, "unexplained-change");
@@ -750,7 +759,7 @@ export const updateEntity = (
   rememberCall(
     context.io.retain,
     draft,
-    { before: entity.fields, after: after.object, sent: body, kept },
+    { before: entity.fields, after: after.object, sent: body, kept, read },
     explained.unstamped,
   );
   // Response reproducibility is established before the read owner adopts a stored clock spelling.
@@ -759,6 +768,7 @@ export const updateEntity = (
     itemReads(context, { type, idField, collection, id }),
     written.value,
     draft.plan.rules,
+    true,
   );
   context.io.retain(
     64 +

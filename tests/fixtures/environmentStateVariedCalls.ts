@@ -98,6 +98,31 @@ export const DONE_CLOCK_ROWS: readonly TimedCaptureRow[] = (() => {
   ];
 })();
 
+/** Tasks marked done: each answer stamps `done_at` to the millisecond in `Z`, the read after it to the second in `+00:00`. */
+export const DONE_ZONE_ROWS: readonly TimedCaptureRow[] = (() => {
+  const task = (id: number, title: string): Entity => ({
+    id,
+    title,
+    done: false,
+    done_at: "0001-01-01T00:00:00Z",
+  });
+  const [trim, oil] = [task(1, "Trim the wicks"), task(2, "Order lamp oil")];
+  const done = (entity: Entity, at: number, suffix: string): Entity => ({
+    ...entity,
+    done: true,
+    done_at: bookClock(at).replace("Z", suffix),
+  });
+  return [
+    ["GET", "/api/tasks", [trim, oil]],
+    ["GET", "/api/tasks/1", trim],
+    ["GET", "/api/tasks/2", oil],
+    ["PATCH", "/api/tasks/1", done(trim, 3, ".123Z"), 200, { done: true }],
+    ["GET", "/api/tasks/1", done(trim, 3, "+00:00")],
+    ["PATCH", "/api/tasks/2", done(oil, 5, ".234Z"), 200, { done: true }],
+    ["GET", "/api/tasks/2", done(oil, 5, "+00:00")],
+  ];
+})();
+
 /** Tag PUTs: one leaves the owner out and the application clears it, the other sends it and keeps it. */
 export const PUT_CLEARS_ROWS: readonly TimedCaptureRow[] = (() => {
   const tag = (id: number, name: string, owner: number | null): Entity => ({
@@ -167,6 +192,42 @@ const ownerPuts = (clearsFirst: boolean): readonly TimedCaptureRow[] => {
 
 /** A name-only PUT that keeps the owner, then one that clears it. */
 export const KEPT_THEN_CLEARED_ROWS = ownerPuts(false);
+
+/** Two name-only tag PUTs where one answers only `id` and `name` and its read shows the owner kept, and the other clears it. */
+const omittedOwnerPuts = (omitsFirst: boolean): readonly TimedCaptureRow[] => {
+  const tag = (id: number, name: string, owner: number | null): Entity => ({
+    id,
+    name,
+    owner,
+  });
+  const [inbox, bills] = [tag(1, "Inbox", 3), tag(2, "Bills", 3)];
+  const kept = (entity: Entity, name: string) => ({ ...entity, name });
+  const answered = (entity: Entity) => ({
+    id: entity["id"]!,
+    name: entity["name"]!,
+  });
+  const [triage, paid] = omitsFirst
+    ? [kept(inbox, "Triage"), tag(2, "Paid", null)]
+    : [tag(1, "Triage", null), kept(bills, "Paid")];
+  const answer = (entity: Entity, omits: boolean) =>
+    omits ? answered(entity) : entity;
+  return [
+    ["GET", "/api/tags", [inbox, bills]],
+    ["GET", "/api/tags/1", inbox],
+    ["GET", "/api/tags/2", bills],
+    ["PUT", "/api/tags/1", answer(triage, omitsFirst), 200, { name: "Triage" }],
+    ["GET", "/api/tags/1", triage],
+    ["PUT", "/api/tags/2", answer(paid, !omitsFirst), 200, { name: "Paid" }],
+    ["GET", "/api/tags/2", paid],
+    ["GET", "/api/tags", [triage, paid]],
+  ];
+};
+
+/** A name-only PUT answered without the owner its read shows kept, then one that clears it. */
+export const OMITTED_KEPT_THEN_CLEARED_ROWS = omittedOwnerPuts(true);
+
+/** A name-only PUT that clears the owner, then one answered without the owner its read shows kept. */
+export const CLEARED_THEN_OMITTED_KEPT_ROWS = omittedOwnerPuts(false);
 
 /** A name-only PUT that clears the owner, then one that keeps it. */
 export const CLEARED_THEN_KEPT_ROWS = ownerPuts(true);

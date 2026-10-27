@@ -977,6 +977,7 @@ export const applyCreate = (
     itemReads(context, { type, idField, collection, id }),
     fields.value,
     draft.plan.rules,
+    false,
   );
   const inserted = insertCreated(context, draft, entity(stored, id));
   context.io.retain(collection.length * 2 + 16);
