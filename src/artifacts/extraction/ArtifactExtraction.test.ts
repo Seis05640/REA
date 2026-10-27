@@ -1891,7 +1891,7 @@ it("skips an oversized first dry-run entry with a bounded limitation and truncat
       { logical_path: "z-small.txt", status: "planned" },
     ]);
 
-    // 5. Admitted ASAR with a 5 MiB invalid integrity hash truncates the diagnostic limitation and stays under MAX_DRY_RUN_PLAN_PAGE_BYTES
+    // 5. Admitted ASAR with a 5 MiB invalid integrity hash skips the oversized entry at planLimit: 1 with an explicit oversized-entry limitation and stays under MAX_DRY_RUN_PLAN_PAGE_BYTES
     const asarPath = join(directory, "huge-invalid-hash.asar");
     const memberContent = Buffer.from("asar payload\n");
     const hugeInvalidHash = "z".repeat(5 * 1024 * 1024);
@@ -1928,13 +1928,21 @@ it("skips an oversized first dry-run entry with a bounded limitation and truncat
       integrityPolicy: "fail",
       resourceScope,
     });
-    expect(asarDryPage.plan?.page?.returned_entries).toBe(1);
+    expect(asarDryPage.plan?.entries).toEqual([]);
+    expect(asarDryPage.plan?.page).toEqual({
+      total_entries: 1,
+      offset: 0,
+      limit: 1,
+      returned_entries: 0,
+      next_offset: null,
+      truncated: true,
+    });
     expect(
       asarDryPage.limitations.some(
         (item) =>
           item.startsWith(
-            "member.txt: ASAR integrity declaration has an invalid digest representation;",
-          ) && item.includes("... [truncated "),
+            "Skipped dry-run plan entry at offset 0 (member.txt)",
+          ) && item.includes("exceeds the maximum dry-run page budget"),
       ),
     ).toBe(true);
     expect(

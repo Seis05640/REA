@@ -133,11 +133,15 @@ export const boundDryRunBaseLimitations = (
   maxTotalBytes = MAX_DRY_RUN_BASE_LIMITATIONS_BYTES,
 ): readonly string[] => {
   const baseLimitations: string[] = [];
+  const perItemMaxBytes = Math.min(
+    MAX_DRY_RUN_DIAGNOSTIC_STRING_BYTES,
+    Math.max(256, maxTotalBytes - 128),
+  );
   // Track serialized JSON array bytes: 2 bytes for outer brackets plus (serialized item bytes + 1 comma byte) per element.
   let usedBytes = 2;
   let omittedCount = 0;
   for (const raw of limitations) {
-    const item = truncateDryRunDiagnosticString(raw);
+    const item = truncateDryRunDiagnosticString(raw, perItemMaxBytes);
     const itemBytes = Buffer.byteLength(JSON.stringify(item), "utf8") + 1;
     if (baseLimitations.length > 0 && usedBytes + itemBytes > maxTotalBytes) {
       omittedCount += 1;
@@ -166,20 +170,16 @@ const estimateDryRunPlanEntryBytes = (
   entry: ArtifactExtractionPlanEntry,
   perOccurrenceOverheadBytes = 0,
 ): number => {
+  const entryJsonBytes = Buffer.byteLength(JSON.stringify(entry), "utf8") + 1;
   const pathBytes = Buffer.byteLength(
     JSON.stringify(entry.logical_path),
     "utf8",
   );
-  const reasonBytes =
-    entry.reason === null
-      ? 4
-      : Buffer.byteLength(JSON.stringify(entry.reason), "utf8");
   return (
-    pathBytes +
-    reasonBytes +
+    entryJsonBytes +
     (entry.status === "planned" ? pathBytes + 220 : 0) +
     perOccurrenceOverheadBytes +
-    240
+    64
   );
 };
 
@@ -206,10 +206,7 @@ export const sliceDryRunPlanCatalogWithDiagnostics = (
   const totalEntries = catalog.allEntries.length;
   const maxEnd = Math.min(totalEntries, offset + limit);
   const pagedEntries: ArtifactExtractionPlanEntry[] = [];
-  let pageBytes = Math.min(
-    sanitizedOverheadBytes,
-    Math.floor(MAX_DRY_RUN_PLAN_PAGE_BYTES / 2),
-  );
+  let pageBytes = sanitizedOverheadBytes;
   for (let index = offset; index < maxEnd; index += 1) {
     const entry = catalog.allEntries[index]!;
     const perOccurrenceBytes =

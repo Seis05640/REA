@@ -804,14 +804,6 @@ const primeComponentLimitProbeState = async (
 const summarizeDryRunReasonPath = (path: string): string =>
   path.length > 300 ? `${path.slice(0, 120)}...` : path;
 
-const formatDryRunOccurrenceLimitation = (
-  logicalPath: string,
-  limitation: string,
-): string =>
-  truncateDryRunDiagnosticString(
-    `${summarizeDryRunReasonPath(logicalPath)}: ${limitation}`,
-  );
-
 const overLimitDestinationReason = async (
   resolvedOutputRoot: string,
   destinationParent: string,
@@ -1165,14 +1157,15 @@ const buildDryRunPlanCatalog = (
     const selectedItem = selectedById.get(occurrence.occurrence_id);
     if (selectedItem !== undefined) {
       let overheadBytes =
-        contradictionBytesByOccurrenceId.get(occurrence.occurrence_id) ?? 0;
+        (contradictionBytesByOccurrenceId.get(occurrence.occurrence_id) ?? 0) +
+        Buffer.byteLength(JSON.stringify(occurrence.occurrence_id), "utf8") +
+        2;
       for (const limitation of occurrence.limitations) {
-        const formatted = formatDryRunOccurrenceLimitation(
-          occurrence.logical_path,
-          limitation,
-        );
         overheadBytes +=
-          Buffer.byteLength(JSON.stringify(formatted), "utf8") + 2;
+          Buffer.byteLength(
+            JSON.stringify(`${occurrence.logical_path}: ${limitation}`),
+            "utf8",
+          ) + 2;
       }
       if (overheadBytes > 0) {
         perOccurrenceOverheadBytes.set(occurrence.occurrence_id, overheadBytes);
@@ -1419,13 +1412,39 @@ const createExtractionResult = (
   const boundedUnresolvedLimitations = dryRun
     ? boundDryRunBaseLimitations(unresolvedPlan.limitations)
     : unresolvedPlan.limitations;
+  const dryRunSummaryLimitation =
+    unresolvedPlan.byOccurrenceId.size === 0 &&
+    unresolvedPlan.limitations.length === 0
+      ? DRY_RUN_VALIDATED_LIMITATION
+      : unresolvedPlan.byOccurrenceId.size > 0
+        ? DRY_RUN_UNRESOLVED_LIMITATION
+        : DRY_RUN_NON_FILE_DRIFT_SUMMARY_LIMITATION;
+  const contradictionSummaryLimitation =
+    integrityContradictions.length === 0
+      ? undefined
+      : formatExtractionIntegrityContradictionLimitation(
+          integrityContradictions.length,
+          dryRun,
+        );
   const baseOverheadBytes = dryRun
     ? Buffer.byteLength(JSON.stringify(inventory.manifest), "utf8") +
       Buffer.byteLength(JSON.stringify(input.outputRoot), "utf8") +
       Buffer.byteLength(JSON.stringify(inventory.provenance), "utf8") +
       Buffer.byteLength(JSON.stringify(materializationProvenance), "utf8") +
+      Buffer.byteLength(JSON.stringify(inventory.coverage), "utf8") +
       Buffer.byteLength(JSON.stringify(boundedTraversalLimitations), "utf8") +
       Buffer.byteLength(JSON.stringify(boundedUnresolvedLimitations), "utf8") +
+      Buffer.byteLength(JSON.stringify(dryRunSummaryLimitation), "utf8") +
+      Buffer.byteLength(
+        JSON.stringify(DRY_RUN_BYTE_TOTALS_LIMITATION),
+        "utf8",
+      ) +
+      (contradictionSummaryLimitation === undefined
+        ? 0
+        : Buffer.byteLength(
+            JSON.stringify(contradictionSummaryLimitation),
+            "utf8",
+          )) +
       2048
     : 0;
   const slicedPlan: SlicedDryRunPlan | undefined = dryRun
@@ -1443,9 +1462,8 @@ const createExtractionResult = (
   const plan = slicedPlan?.plan;
   const oversizedEntryLimitation = slicedPlan?.oversizedEntryLimitation;
   const platform = input.platform ?? process.platform;
-  const truncated = plan?.page?.truncated === true;
   const pagedEntryIds =
-    truncated && plan !== undefined
+    plan !== undefined
       ? new Set(plan.entries.map((entry) => entry.occurrence_id))
       : undefined;
   const returnedSelectedOccurrenceIds =
@@ -1456,7 +1474,7 @@ const createExtractionResult = (
           .map((entry) => entry.occurrence_id)
           .sort(compareUnicodeCodePoints);
   const pagedPlannedPaths =
-    truncated && plan !== undefined
+    plan !== undefined
       ? new Set(
           plan.entries
             .filter((entry) => entry.status === "planned")
@@ -1507,13 +1525,8 @@ const createExtractionResult = (
     limitations: [
       ...boundedTraversalLimitations,
       ...selectedForLimitations.flatMap(({ occurrence }) =>
-        occurrence.limitations.map((limitation) =>
-          dryRun
-            ? formatDryRunOccurrenceLimitation(
-                occurrence.logical_path,
-                limitation,
-              )
-            : `${occurrence.logical_path}: ${limitation}`,
+        occurrence.limitations.map(
+          (limitation) => `${occurrence.logical_path}: ${limitation}`,
         ),
       ),
       dryRun
