@@ -1,4 +1,5 @@
 import { z } from "incur";
+import { projectCliAnalysisResult } from "./projectCliAnalysisResult.js";
 import type { Logger } from "pino";
 import { JvmAnalysisService } from "../application/jvm/JvmAnalysisService.js";
 import type { JvmAnalysisPort } from "../application/jvm/JvmAnalysisPort.js";
@@ -27,7 +28,7 @@ export const registerJvmCommands = (
           "vineflower",
           operation,
           signal,
-        ),
+        ).then(projectCliAnalysisResult),
       ),
     );
   cli.command(CLI_COMMANDS.inspectJvmDecompiler, {

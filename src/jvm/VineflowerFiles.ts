@@ -41,7 +41,8 @@ export const JVM_METADATA_BYTES = Math.floor(
 );
 
 export const checkJvmCancellation = (signal?: AbortSignal): void => {
-  if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
+  if (signal?.aborted)
+    throw new AnalysisCancelledError(OPERATION, { cause: signal.reason });
 };
 export const jvmInputFailure = (
   field: string,
@@ -84,9 +85,8 @@ const withRegularFile = async <T>(
 ): Promise<T> => {
   let owner: OwnedFileHandle;
   try {
-    owner = new OwnedFileHandle(
-      await openRegularFile(path, { symlinks: "reject", signal }),
-    );
+    const source = await openRegularFile(path, { symlinks: "reject", signal });
+    owner = new OwnedFileHandle(source.handle);
   } catch (cause: unknown) {
     if (cause instanceof RegularFileAdmissionFailure) {
       const released = await scope.release({

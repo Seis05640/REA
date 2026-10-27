@@ -108,7 +108,9 @@ export class VineflowerProvider implements JvmAnalysisPort {
     signal?: AbortSignal,
   ): Promise<ProviderAvailability> {
     if (signal?.aborted)
-      throw new AnalysisCancelledError("inspect_jvm_decompiler");
+      throw new AnalysisCancelledError("inspect_jvm_decompiler", {
+        cause: signal.reason,
+      });
     if (this.#closing || this.#pending !== undefined)
       return {
         status: "unavailable",
@@ -121,7 +123,9 @@ export class VineflowerProvider implements JvmAnalysisPort {
     try {
       const selected = await resolveVineflowerCommand(this.#environment);
       if (signal?.aborted)
-        throw new AnalysisCancelledError("inspect_jvm_decompiler");
+        throw new AnalysisCancelledError("inspect_jvm_decompiler", {
+          cause: signal.reason,
+        });
       return {
         status: "available",
         code: null,

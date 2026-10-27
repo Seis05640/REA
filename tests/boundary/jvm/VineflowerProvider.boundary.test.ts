@@ -158,7 +158,7 @@ it("publishes verified sources and provenance from a copied input", async () => 
     expect(
       JSON.parse(await readFile(value.manifest.path, "utf8")),
     ).toMatchObject({ target: value.target, sources: value.sources });
-    expect(await readFile(f.path)).toEqual(before);
+    expect((await readFile(f.path)).equals(before)).toBe(true);
     expect(await readdir(f.root)).toEqual(
       expect.arrayContaining(["Probe.class", "vineflower", "sources"]),
     );
@@ -222,7 +222,7 @@ it("passes two ordered immutable classpath snapshots and records their provenanc
       dependencies: identities,
     });
     for (const [index, path] of dependencies.entries()) {
-      expect(await readFile(path)).toEqual(bytes[index]);
+      expect((await readFile(path)).equals(bytes[index]!)).toBe(true);
       await expect(lstat(observed.paths[index]!)).rejects.toMatchObject({
         code: "ENOENT",
       });
@@ -420,7 +420,7 @@ it("preserves archive entry paths and the selected prefix", async () => {
       "sources/fixture/Probe.java",
     ]);
     expect(value.class_prefix).toBe("fixture/Probe");
-    expect(await readFile(archive)).toEqual(original);
+    expect((await readFile(archive)).equals(original)).toBe(true);
   } finally {
     await f.provider.close();
   }
@@ -461,7 +461,7 @@ it("rejects a replaced generated directory without deleting its symlink target",
     expect(await f.provider.execute(request(f.path, f.output))).toMatchObject({
       ok: false,
     });
-    expect(await readFile(f.path)).toEqual(original);
+    expect((await readFile(f.path)).equals(original)).toBe(true);
     await expect(lstat(f.output)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await f.provider.close();

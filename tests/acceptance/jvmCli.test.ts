@@ -101,7 +101,7 @@ cliTest(
       error: decompilation.json,
     });
     expect(await readdir(root)).toEqual(["Fixture.class"]);
-    expect(await readFile(path)).toEqual(bytes);
+    expect((await readFile(path)).equals(bytes)).toBe(true);
   },
   60_000,
 );
@@ -132,7 +132,7 @@ cliTest(
       arguments: { path, output_directory: output, classpath: [] },
     });
     expect(parseMcpToolError(result)).toEqual({ error: response.json });
-    expect(await readFile(path)).toEqual(inputBytes);
+    expect((await readFile(path)).equals(inputBytes)).toBe(true);
     expect(await readFile(preserved, "utf8")).toBe("caller-owned source\n");
     expect(await readdir(output)).toEqual(["keep.java"]);
   },
