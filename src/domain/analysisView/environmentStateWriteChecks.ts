@@ -9,6 +9,7 @@ import {
   isObject,
   listItems,
   listsAll,
+  markedDeleted,
   missingRequiredFields,
   pathSegmentMatches,
   renderStateEntity,
@@ -70,11 +71,14 @@ export class SimulatedState {
     entities: readonly StateEntity[],
     documents: readonly StateDocument[],
   ) {
-    for (const entity of entities) this.put(entity);
+    for (const entity of entities) {
+      if (markedDeleted(entity.fields)) this.#removed.push(entity);
+      else this.put(entity);
+    }
     this.#served.reset(
-      entities.map(({ type, collection, id }) =>
-        entityTarget(type, collection, id),
-      ),
+      entities
+        .filter((entity) => !markedDeleted(entity.fields))
+        .map(({ type, collection, id }) => entityTarget(type, collection, id)),
     );
     for (const document of documents)
       this.#documents.set(document.tool, document.value);
