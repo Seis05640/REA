@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { timedCaptureEvidence } from "../../fixtures/analysisView.js";
+import { INITIAL_TRASH_ROWS } from "../../fixtures/environmentStateLaterReads.js";
 import { jsonObjectSchema } from "../../../src/domain/jsonValue.js";
 
 import {
@@ -57,6 +58,39 @@ const connect = async (url: URL) => {
   await client.connect(transport);
   return client;
 };
+
+processTest(
+  "replays a recorded list containing an initially deleted entity",
+  async ({ processes }) => {
+    const fixture = environmentStateServeFixture(
+      timedCaptureEvidence(INITIAL_TRASH_ROWS),
+    );
+    const root = await createTestTempDirectory("rea-environment-trash-mcp-");
+    const files = await writeEnvironmentServeFiles(root, fixture);
+    const started = await startListeningProcess(processes, [
+      "environment-serve",
+      files.manifestPath,
+      "--evidence",
+      files.capturePath,
+      "--port",
+      "0",
+    ]);
+    const client = await connect(started.url);
+    try {
+      const response = await client.callTool({
+        name: "get_contacts",
+        arguments: { maxSize: "20", offset: "0" },
+      });
+      expect(response.isError).toBeFalsy();
+      expect(response.structuredContent).toMatchObject({
+        body: INITIAL_TRASH_ROWS[0]![2],
+      });
+    } finally {
+      await client.close();
+    }
+  },
+  HTTP_BOUNDARY_TIMEOUT_MS,
+);
 
 processTest(
   "accepts numbers and booleans for query parameters, sent as their JSON text",
