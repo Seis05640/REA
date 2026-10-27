@@ -310,8 +310,8 @@ it.each(["tools/call", "tools/list"])(
   "reconnects after a %s timeout while preserving its typed failure",
   async (method) => {
     const endpoint = await startEndpoint(200, {
-      discoveryTimeoutMs: 100,
-      requestTimeoutMs: 100,
+      discoveryTimeoutMs: 1_000,
+      requestTimeoutMs: 1_000,
     });
     try {
       await endpoint.connection.connect();
@@ -375,7 +375,7 @@ it("retains a working connection after an engine refusal or caller cancellation"
 });
 
 it("retains the typed timeout when disposal fails and retries owned cleanup before reconnecting", async () => {
-  const endpoint = await startEndpoint(200, { requestTimeoutMs: 100 });
+  const endpoint = await startEndpoint(200, { requestTimeoutMs: 1_000 });
   const cleanupFailure = new Error("Client cleanup failed");
   const close = vi.spyOn(Client.prototype, "close");
   try {

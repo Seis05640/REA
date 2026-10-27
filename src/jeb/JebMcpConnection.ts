@@ -237,7 +237,9 @@ export const createStreamableHttpJebMcpConnection: JebMcpConnectionFactory = (
         } catch (cleanupCause: unknown) {
           if (!(cleanupCause instanceof ProviderCleanupError))
             throw cleanupCause;
-          return err(new JebMcpCleanupFailure(failure, cleanupCause));
+          return err(
+            new JebMcpCleanupFailure(failure, cleanupCause, "jeb_mcp_catalog"),
+          );
         }
         return err(failure);
       } finally {

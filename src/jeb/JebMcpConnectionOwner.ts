@@ -29,7 +29,7 @@ export class JebMcpCleanupFailure extends ProviderCleanupError {
   constructor(
     readonly primaryFailure: unknown,
     readonly cleanupFailure: ProviderCleanupError,
-    operation = "jeb_mcp_catalog",
+    operation: string,
   ) {
     super(
       "jeb",
