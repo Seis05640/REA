@@ -149,3 +149,88 @@ export const BOOKMARK_TOGGLE_ROWS: readonly TimedCaptureRow[] = (() => {
     ["GET", "/api/entries", [unstarred, second]],
   ];
 })();
+
+const ranked = (
+  id: number,
+  title: string,
+  position: number | null,
+): Entity => ({
+  id,
+  title,
+  position,
+});
+
+/** Folders a list shows by `position`, the seed holding none: the first create lists after the seed's higher title, and once the seed is deleted later lists alone would also fit a sort by title. */
+export const RANKED_AFTER_DELETE_ROWS: readonly TimedCaptureRow[] = (() => {
+  const zulu = ranked(1, "Zulu Base", null);
+  const bravo = ranked(2, "Bravo", 2);
+  const charlie = ranked(3, "Charlie", 3);
+  const able = ranked(4, "Able", 0);
+  return [
+    ["GET", "/api/folders", [zulu]],
+    ["GET", "/api/folders/1", zulu],
+    ["POST", "/api/folders", bravo, 200, { title: "Bravo", position: 2 }],
+    ["GET", "/api/folders/2", bravo],
+    ["GET", "/api/folders", [zulu, bravo]],
+    ["DELETE", "/api/folders/1", { message: "Folder deleted" }, 200],
+    ["GET", "/api/folders/1", { message: "folder not found" }, 404],
+    ["GET", "/api/folders", [bravo]],
+    ["POST", "/api/folders", charlie, 200, { title: "Charlie", position: 3 }],
+    ["GET", "/api/folders/3", charlie],
+    ["GET", "/api/folders", [bravo, charlie]],
+    ["POST", "/api/folders", able, 200, { title: "Able", position: 0 }],
+    ["GET", "/api/folders/4", able],
+    ["GET", "/api/folders", [able, bravo, charlie]],
+  ];
+})();
+
+/** Item creates: the first shows no parent at all, the second names one, the third sends `parentId: null` and stores none; lists show each item's id and name. */
+export const ADDED_EMPTY_REFERENCE_ROWS: readonly TimedCaptureRow[] = (() => {
+  const seeded = { id: "5e5e0000-0001-4000-8000-000000000001", name: "Ladder" };
+  const loose = {
+    id: "5e5e0000-0002-4000-8000-000000000002",
+    name: "Scratch box",
+  };
+  const filed = {
+    id: "5e5e0000-0003-4000-8000-000000000003",
+    name: "Scratch drill",
+    parent: LOCATIONS[1]!,
+  };
+  const cleared = {
+    id: "5e5e0000-0004-4000-8000-000000000004",
+    name: "Scratch lamp",
+    parent: null,
+  };
+  const summary = (item: Entity): Entity => ({
+    id: item["id"]!,
+    name: item["name"]!,
+  });
+  return [
+    ["GET", "/api/locations", LOCATIONS],
+    ["GET", `/api/locations/${LOCATIONS[0]!["id"] as string}`, LOCATIONS[0]!],
+    ["GET", `/api/locations/${LOCATIONS[1]!["id"] as string}`, LOCATIONS[1]!],
+    ["GET", "/api/items", [seeded]],
+    ["GET", `/api/items/${seeded.id}`, seeded],
+    ["POST", "/api/items", loose, 201, { name: "Scratch box" }],
+    ["GET", `/api/items/${loose.id}`, loose],
+    ["GET", "/api/items", [seeded, loose].map(summary)],
+    [
+      "POST",
+      "/api/items",
+      filed,
+      201,
+      { name: "Scratch drill", parentId: LOCATIONS[1]!["id"]! },
+    ],
+    ["GET", `/api/items/${filed.id}`, filed],
+    ["GET", "/api/items", [seeded, loose, filed].map(summary)],
+    [
+      "POST",
+      "/api/items",
+      cleared,
+      201,
+      { name: "Scratch lamp", parentId: null },
+    ],
+    ["GET", `/api/items/${cleared.id}`, cleared],
+    ["GET", "/api/items", [seeded, loose, filed, cleared].map(summary)],
+  ];
+})();

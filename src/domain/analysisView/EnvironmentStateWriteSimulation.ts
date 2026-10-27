@@ -109,10 +109,13 @@ const keptInOrder = (
     );
   });
 
-/** The sorts by a field every listed item holds as a string or number that the items follow. */
+/** The sorts by a field every listed item holds as a string or number, and whether the items follow each. */
 const listedSorts = (
   items: readonly JsonObject[],
-): Extract<InsertRule, { rule: "sorted" }>[] =>
+): {
+  readonly rule: Extract<InsertRule, { rule: "sorted" }>;
+  readonly follows: boolean;
+}[] =>
   [...new Set(items.flatMap((item) => Object.keys(item)))]
     .filter((field) =>
       items.every((item) =>
@@ -120,11 +123,10 @@ const listedSorts = (
       ),
     )
     .flatMap((field) =>
-      (["ascending", "descending"] as const).flatMap((direction) =>
-        orderedBy(items, field, direction)
-          ? [{ rule: "sorted", field, direction } as const]
-          : [],
-      ),
+      (["ascending", "descending"] as const).map((direction) => ({
+        rule: { rule: "sorted", field, direction } as const,
+        follows: orderedBy(items, field, direction),
+      })),
     );
 
 /** Whether a list read's query sets a parameter the view's query model reads as a sort or its direction. */
@@ -202,6 +204,8 @@ export class EnvironmentStateWriteSimulation {
   readonly #placed = new Set<string>();
   /** Placed creates a read other than a whole listing in collection order placed, whose insert stays as it is. */
   readonly #settledInserts = new Set<string>();
+  /** Sorts a whole listing that placed a create did not follow, by create, which no later listing adds back. */
+  readonly #unfollowedSorts = new Map<string, Set<string>>();
   /** The order a read showed a type's collections sorted in after an update, when no create of it showed one. */
   readonly #learnedSorts = new Map<string, InsertRule>();
   /** Entities writes no plan models made, taken when an item read first shows them. */
@@ -973,10 +977,20 @@ export class EnvironmentStateWriteSimulation {
           same(candidate, draft.plan.insert) ||
           orderedBy(items, candidate.field, candidate.direction),
       );
+      const sorts = listedSorts(items);
+      const unfollowed = this.#unfollowedSorts.get(name) ?? new Set<string>();
+      for (const { rule, follows } of sorts)
+        if (!follows) unfollowed.add(JSON.stringify(rule));
+      this.#unfollowedSorts.set(name, unfollowed);
       // A list shown in the order of the field that names its items says less than one in a field people read.
       const idField = this.#types.get(view.type)?.id_field;
-      const learned = listedSorts(items)
-        .filter((rule) => !followed.some((candidate) => same(candidate, rule)))
+      const learned = sorts
+        .map(({ rule }) => rule)
+        .filter(
+          (rule) =>
+            !unfollowed.has(JSON.stringify(rule)) &&
+            !followed.some((candidate) => same(candidate, rule)),
+        )
         .sort(
           (left, right) =>
             Number(left.field === idField) - Number(right.field === idField),

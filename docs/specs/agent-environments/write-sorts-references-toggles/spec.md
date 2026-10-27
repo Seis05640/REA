@@ -20,9 +20,11 @@ write plans. A short diagnosis of the largest clusters found three gaps REA coul
 ## Behaviour
 
 - **Sorted creates.** A create a whole listing in collection order placed last is placed again by a field a later such
-  listing shows it sorted by, the type's id field last. A create another read placed keeps its place.
+  listing shows it sorted by, the type's id field last. A sort an earlier such listing did not follow stays ruled out,
+  though the entity that showed it is gone. A create another read placed keeps its place.
 - **Listed references.** A field holding one object per id a sent list names, in that order, is a `reference` with
-  `many`. A create that sent the member as `null` or `[]` and stored the field so agrees with one that named entities;
+  `many`. A create that sent the member as `null` or `[]` and stored the field so agrees with one that named entities,
+  whichever create first showed the reference;
   serving stores the entities a call names, or the empty value as that create did. A `null` id stays refused where
   no recorded create sent one.
 - **Hidden bodies.** A scenario request whose body Playwright did not expose and that names no `Content-Type` sent no

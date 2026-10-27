@@ -918,7 +918,8 @@ contradicted it; otherwise its `reason` is the first of its build reason
 `checked_record_ordinals` lists the confirming reads, `insert` places created
 entities (sorted by a field the collection's recorded order shows, else last;
 a create a whole listing in collection order placed last is placed again by a
-field a later such listing shows it sorted by, the type's id field last),
+field a later such listing shows it sorted by and no earlier one ruled out, the
+type's id field last),
 and `write_clock` is the end of the last timed record, to the next second, when
 all request completions are known; otherwise it is null. An
 update that writes the field its type's creates are sorted by moves its entity

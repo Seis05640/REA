@@ -24,7 +24,7 @@ bundles after a delete (7) and Miniflux's bookmark toggle (5).
 
 - `npm run -s check:fast`, `format:check`, `knip`, `scan:todos`, `docs:check`, `verify:test-discovery`,
   `mcp-catalog:check` and `jscpd`: passed.
-- `npx vitest run --project domain --project services`: 11,878 passed, 6 skipped, merged with `2817665d`. An earlier run of the suite failed a
+- `npx vitest run --project domain --project services`: 11,880 passed, 6 skipped, merged with `2817665d`. An earlier run of the suite failed a
   `SetupRegistrationPrewarm` runner test whose child process outran its 5-second timeout; alone it passes on this
   branch and on #7539 (3.0 to 4.7 seconds).
 - `npm run -s test:focused --` the environment build, export and serve CLI boundaries, the analysis-view CLI and MCP
@@ -59,6 +59,17 @@ merging `2817665d`.
   unarchive learns its body-less call and stays `unconfirmed`, seen once. Two Homebox item writes learn their tag
   references and stay withheld for other members.
 - Views are unchanged: 3,188 views across the captures.
+
+## Review round
+
+Greptile's review of `4e777d28` raised five findings. Two were in this branch's code and are fixed:
+
+- A sort an earlier whole listing ruled out could come back from a later listing once the entity that ruled it out was
+  deleted, and a create's retry could adopt it. Each create now keeps the sorts its whole listings did not follow.
+- A create sending a reference's member as `null` after a later create added the reference, the first having shown no
+  such field, was withheld: the empty-reference agreement now applies there too.
+
+Both tests fail on `4e777d28`; the census is unchanged. The other three were #7332's and #7539's code, handled there.
 
 ## Not verified
 

@@ -5,9 +5,11 @@ import {
   type TimedCaptureRow,
 } from "../../../tests/fixtures/analysisView.js";
 import {
+  ADDED_EMPTY_REFERENCE_ROWS,
   BOOKMARK_TOGGLE_ROWS,
   CREATES_BY_TITLE_ROWS,
   ITEM_REFERENCES_ROWS,
+  RANKED_AFTER_DELETE_ROWS,
   feedEntry,
 } from "../../../tests/fixtures/environmentStateItemWrites.js";
 import { environmentStateViewOf } from "../../../tests/fixtures/environmentStateWrites.js";
@@ -28,6 +30,25 @@ describe("item writes", () => {
     });
     expect(planOf(CREATES_BY_TITLE_ROWS, "delete_folders_by_id")).toMatchObject(
       { served: true },
+    );
+  });
+
+  it("keeps a sort an earlier list ruled out away from a create, after the entity that ruled it out is deleted", () => {
+    expect(planOf(RANKED_AFTER_DELETE_ROWS, "post_folders")).toMatchObject({
+      served: true,
+      insert: { rule: "sorted", field: "position", direction: "ascending" },
+    });
+  });
+
+  it("serves a create sending no parent after an earlier create added the parent reference", () => {
+    const plan = planOf(ADDED_EMPTY_REFERENCE_ROWS, "post_items");
+    expect(plan).toMatchObject({ served: true });
+    expect(plan.rules).toContainEqual(
+      expect.objectContaining({
+        field: "parent",
+        rule: "reference",
+        member: "parentId",
+      }),
     );
   });
 

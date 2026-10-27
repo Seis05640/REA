@@ -316,6 +316,12 @@ const addedReference = (
     return Object.hasOwn(later.body, added.member)
       ? undefined
       : { rule: added };
+  // A call that named nothing and stored nothing agrees, as it does with a reference the first create showed.
+  if (
+    after === undefined &&
+    emptyReference(later.body[added.member], later.entity[field])
+  )
+    return { rule: added };
   const rule =
     after === undefined
       ? undefined
