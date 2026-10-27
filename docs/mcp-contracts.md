@@ -1237,8 +1237,8 @@ to write), `unsupported` (directories, logical metadata declarations, or nested
 archive members that single-container extraction does not expand), or
 `unresolved` (symlinks, case-folding or length-limit paths that cannot be
 verified without creating files, or non-file entries that drifted from the
-inventory snapshot). `plan.page` bounds `plan.entries` per call (`plan_offset` default `0`,
-`plan_limit` default `500`, maximum `1000`) and reports `total_entries`,
+inventory snapshot). `plan.page` bounds `plan.entries` per call (`plan_offset` / `--plan-offset` default `0`,
+`plan_limit` / `--plan-limit` default `500`, maximum `1000`, also capped by serialized page byte budget) and reports `total_entries`,
 `offset`, `limit`, `returned_entries`, `next_offset`, and `truncated` while
 `plan.totals` always summarizes the complete inventory. `plan.totals` reports
 `planned_files`, `unsupported_entries`, `unresolved_entries`,

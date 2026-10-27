@@ -194,10 +194,13 @@ export class SafeOutputTree {
       },
     );
     return {
-      caseSensitivity: await observeDirectoryCaseSensitivity(
-        parent,
-        options.resourceScope,
-      ),
+      caseSensitivity:
+        options.resourceScope === undefined
+          ? "unknown"
+          : await observeDirectoryCaseSensitivity(
+              parent,
+              options.resourceScope,
+            ),
       canonicalOutput,
     };
   }
@@ -841,7 +844,7 @@ const MAX_CASE_PROBE_ENTRIES = 256;
  */
 const observeDirectoryCaseSensitivity = async (
   directory: string,
-  resourceScope?: ArtifactResourceScope,
+  resourceScope: ArtifactResourceScope,
 ): Promise<DestinationCaseSensitivity> => {
   const dir = await opendir(directory).catch(() => undefined);
   if (dir === undefined) return "unknown";
@@ -893,14 +896,13 @@ const observeDirectoryCaseSensitivity = async (
   } catch {
     caseSensitivity = "unknown";
   }
-  const scope = resourceScope ?? new ArtifactResourceScope();
-  const cleanup = await scope.release({
+  const cleanup = await resourceScope.release({
     kind: "directory-handle",
     resource: directory,
     handle: owner,
   });
   if (cleanup.kind === "failed")
-    throw scope.cleanupFailure({ kind: "completed" }, [cleanup]);
+    throw resourceScope.cleanupFailure({ kind: "completed" }, [cleanup]);
   return caseSensitivity;
 };
 

@@ -56,8 +56,10 @@ import {
   extractArtifact,
   formatDryRunNonFileAddedLimitation,
   formatDryRunNonFileKindMismatchReason,
+  formatDryRunOversizedEntryLimitation,
   formatDryRunPlanPageLimitation,
   formatExtractionIntegrityContradictionLimitation,
+  MAX_DRY_RUN_PLAN_PAGE_BYTES,
 } from "./ArtifactExtraction.js";
 
 const zipBytes = async (content?: string): Promise<Buffer> => {
@@ -499,7 +501,6 @@ it("materializes the classified ASAR instead of repeating the adapter format hin
     await resourceScope.close();
   }
 });
-
 
 it("plans dry-run extraction with unresolved/unsupported entries and labeled byte estimates without writing to disk", async () => {
   const directory = await createTestTempDirectory("rea-extraction-dry-run-");
@@ -1627,11 +1628,9 @@ it("revalidates transferred ZIP member and container bytes during dry-run, bound
 
     let destinationProbeCount = 0;
     const pagedOutputRoot = join(directory, "paged-dry-out");
+    const probePrefix = join(directory, "entry-");
     lstatOverride = (targetPath: string) => {
-      if (
-        targetPath.startsWith(`${directory}/entry-`) ||
-        targetPath.startsWith(`${directory}\entry-`)
-      ) {
+      if (targetPath.startsWith(probePrefix)) {
         destinationProbeCount += 1;
       }
       return undefined;
@@ -1648,6 +1647,7 @@ it("revalidates transferred ZIP member and container bytes during dry-run, bound
         integrityPolicy: "fail",
         resourceScope,
       });
+      expect(destinationProbeCount).toBeGreaterThan(0);
       expect(destinationProbeCount).toBeLessThanOrEqual(2);
       expect(page1.plan?.page).toEqual({
         total_entries: 40,
@@ -1695,10 +1695,295 @@ it("revalidates transferred ZIP member and container bytes during dry-run, bound
       expect(page3.limitations).toContain(
         formatDryRunPlanPageLimitation(10, 40, 30, null),
       );
+      expect(page3.extraction_manifest.selected_occurrence_ids).toHaveLength(
+        10,
+      );
     } finally {
       lstatOverride = undefined;
     }
   } finally {
+    await resourceScope.close();
+  }
+});
+
+it("reuses validated dry-run plans across continuation pages, invalidates on mutation, and bounds oversized entries and ASAR diagnostics within MAX_DRY_RUN_PLAN_PAGE_BYTES", async () => {
+  const directory = await createTestTempDirectory("rea-dry-run-page-budget-");
+  const manyNamesArchive = join(directory, "many-names.zip");
+  const manyWriter = new ZipWriter(new Uint8ArrayWriter());
+  for (let index = 0; index < 40; index += 1) {
+    const name = `entry-${String(index).padStart(4, "0")}.txt`;
+    await manyWriter.add(name, new TextReader(`item-${String(index)}`));
+  }
+  await writeFile(manyNamesArchive, Buffer.from(await manyWriter.close()));
+  const pagedOutputRoot = join(directory, "paged-dry-out");
+  const resourceScope = new ArtifactResourceScope();
+  try {
+    await extractArtifact({
+      inputPath: manyNamesArchive,
+      inputFormat: "zip",
+      outputRoot: pagedOutputRoot,
+      dryRun: true,
+      planOffset: 0,
+      planLimit: 15,
+      environment: {},
+      integrityPolicy: "fail",
+      resourceScope,
+    });
+
+    // 1. Continuation pages reuse the validated dry-run plan without re-hashing archive entries
+    const zipReadSpy = vi.spyOn(ZipArtifactReader.prototype, "entries");
+    try {
+      const cachedPage2 = await extractArtifact({
+        inputPath: manyNamesArchive,
+        inputFormat: "zip",
+        outputRoot: pagedOutputRoot,
+        dryRun: true,
+        planOffset: 15,
+        planLimit: 15,
+        environment: {},
+        integrityPolicy: "fail",
+        resourceScope,
+      });
+      expect(zipReadSpy).not.toHaveBeenCalled();
+      expect(cachedPage2.plan?.page).toEqual({
+        total_entries: 40,
+        offset: 15,
+        limit: 15,
+        returned_entries: 15,
+        next_offset: 30,
+        truncated: true,
+      });
+    } finally {
+      zipReadSpy.mockRestore();
+    }
+
+    // 2. Mutating the source archive before a continuation page fails closed with an integrity error
+    await writeFile(manyNamesArchive, await zipBytes("mutated\n"));
+    await expect(
+      extractArtifact({
+        inputPath: manyNamesArchive,
+        inputFormat: "zip",
+        outputRoot: pagedOutputRoot,
+        dryRun: true,
+        planOffset: 15,
+        planLimit: 15,
+        environment: {},
+        integrityPolicy: "fail",
+        resourceScope,
+      }),
+    ).rejects.toMatchObject({
+      name: "ArtifactReaderFailure",
+      reason: "integrity",
+    });
+
+    // 3. Byte-budgeted paging: 12 entries with ~50 KB paths stay strictly within MAX_DRY_RUN_PLAN_PAGE_BYTES
+    const longNamesArchive = join(directory, "long-names-budget.zip");
+    const longWriter = new ZipWriter(new Uint8ArrayWriter());
+    for (let idx = 0; idx < 12; idx += 1) {
+      const prefix = `${"a".repeat(250)}/`.repeat(200);
+      await longWriter.add(
+        `${prefix}item-${String(idx).padStart(2, "0")}.txt`,
+        new TextReader(""),
+      );
+    }
+    await writeFile(longNamesArchive, Buffer.from(await longWriter.close()));
+    const longPage1 = await extractArtifact({
+      inputPath: longNamesArchive,
+      inputFormat: "zip",
+      outputRoot: join(directory, "long-names-dry-out"),
+      dryRun: true,
+      environment: {},
+      integrityPolicy: "fail",
+      resourceScope,
+    });
+    expect(longPage1.plan?.page?.truncated).toBe(true);
+    expect(longPage1.plan?.page?.returned_entries).toBeGreaterThanOrEqual(1);
+    expect(longPage1.plan?.page?.returned_entries).toBeLessThan(12);
+    expect(longPage1.plan?.page?.next_offset).toBe(
+      longPage1.plan?.page?.returned_entries,
+    );
+    expect(
+      Buffer.byteLength(JSON.stringify(longPage1), "utf8"),
+    ).toBeLessThanOrEqual(MAX_DRY_RUN_PLAN_PAGE_BYTES);
+  } finally {
+    await resourceScope.close();
+  }
+});
+
+it("skips an oversized first dry-run entry with a bounded limitation and truncates oversized ASAR integrity diagnostics within MAX_DRY_RUN_PLAN_PAGE_BYTES", async () => {
+  const directory = await createTestTempDirectory("rea-dry-run-oversized-");
+  const resourceScope = new ArtifactResourceScope();
+  try {
+    // 1. Oversized first entry (multi-hundred-KB basename) exceeding MAX_DRY_RUN_PLAN_PAGE_BYTES is skipped with a bounded limitation and advances next_offset
+    const oversizedArchive = join(directory, "oversized-first-entry.asar");
+    const smallContent = Buffer.from("ok\n");
+    const oversizedBasename = `a-${"x".repeat(550 * 1024)}.txt`;
+    await writeFile(
+      oversizedArchive,
+      Buffer.concat([
+        asarHeaderBytes(
+          JSON.stringify({
+            files: {
+              [oversizedBasename]: {
+                size: 0,
+                offset: "0",
+              },
+              "z-small.txt": {
+                size: smallContent.length,
+                offset: "0",
+              },
+            },
+          }),
+        ),
+        smallContent,
+      ]),
+    );
+    const oversizedPage1 = await extractArtifact({
+      inputPath: oversizedArchive,
+      inputFormat: "asar",
+      outputRoot: join(directory, "oversized-dry-out"),
+      dryRun: true,
+      planOffset: 0,
+      planLimit: 10,
+      environment: {},
+      integrityPolicy: "fail",
+      resourceScope,
+    });
+    expect(oversizedPage1.plan?.page).toEqual({
+      total_entries: 2,
+      offset: 0,
+      limit: 10,
+      returned_entries: 0,
+      next_offset: 1,
+      truncated: true,
+    });
+    expect(oversizedPage1.plan?.entries).toEqual([]);
+    expect(oversizedPage1.artifacts).toEqual([]);
+    expect(
+      oversizedPage1.limitations.some((item) =>
+        item.startsWith("Skipped dry-run plan entry at offset 0 ("),
+      ),
+    ).toBe(true);
+    expect(
+      Buffer.byteLength(JSON.stringify(oversizedPage1), "utf8"),
+    ).toBeLessThanOrEqual(MAX_DRY_RUN_PLAN_PAGE_BYTES);
+
+    const oversizedPage2 = await extractArtifact({
+      inputPath: oversizedArchive,
+      inputFormat: "asar",
+      outputRoot: join(directory, "oversized-dry-out"),
+      dryRun: true,
+      planOffset: 1,
+      planLimit: 10,
+      environment: {},
+      integrityPolicy: "fail",
+      resourceScope,
+    });
+    expect(oversizedPage2.plan?.page).toEqual({
+      total_entries: 2,
+      offset: 1,
+      limit: 10,
+      returned_entries: 1,
+      next_offset: null,
+      truncated: true,
+    });
+    expect(oversizedPage2.plan?.entries).toMatchObject([
+      { logical_path: "z-small.txt", status: "planned" },
+    ]);
+
+    // 5. Admitted ASAR with a 5 MiB invalid integrity hash truncates the diagnostic limitation and stays under MAX_DRY_RUN_PLAN_PAGE_BYTES
+    const asarPath = join(directory, "huge-invalid-hash.asar");
+    const memberContent = Buffer.from("asar payload\n");
+    const hugeInvalidHash = "z".repeat(5 * 1024 * 1024);
+    await writeFile(
+      asarPath,
+      Buffer.concat([
+        asarHeaderBytes(
+          JSON.stringify({
+            files: {
+              "member.txt": {
+                size: memberContent.length,
+                offset: "0",
+                integrity: {
+                  algorithm: "SHA256",
+                  hash: hugeInvalidHash,
+                  blockSize: 4096,
+                  blocks: [hugeInvalidHash.slice(0, 64)],
+                },
+              },
+            },
+          }),
+        ),
+        memberContent,
+      ]),
+    );
+    const asarDryPage = await extractArtifact({
+      inputPath: asarPath,
+      inputFormat: "asar",
+      outputRoot: join(directory, "asar-dry-out"),
+      dryRun: true,
+      planOffset: 0,
+      planLimit: 1,
+      environment: {},
+      integrityPolicy: "fail",
+      resourceScope,
+    });
+    expect(asarDryPage.plan?.page?.returned_entries).toBe(1);
+    expect(
+      asarDryPage.limitations.some(
+        (item) =>
+          item.startsWith(
+            "member.txt: ASAR integrity declaration has an invalid digest representation;",
+          ) && item.includes("... [truncated "),
+      ),
+    ).toBe(true);
+    expect(
+      Buffer.byteLength(JSON.stringify(asarDryPage), "utf8"),
+    ).toBeLessThanOrEqual(MAX_DRY_RUN_PLAN_PAGE_BYTES);
+  } finally {
+    await resourceScope.close();
+  }
+});
+
+it("preserves a published extraction receipt when signal aborts after SafeOutputTree publication and skips case probes without resourceScope", async () => {
+  const directory = await createTestTempDirectory("rea-post-publish-abort-");
+  await writeFile(join(directory, "CaseProbeSeed.txt"), "seed\n");
+
+  const withoutScope = await SafeOutputTree.checkDestination(
+    join(directory, "no-scope-out"),
+  );
+  expect(withoutScope.caseSensitivity).toBe("unknown");
+
+  const zipPath = join(directory, "archive.zip");
+  await writeFile(zipPath, await zipBytes("published content\n"));
+  const controller = new AbortController();
+  const originalCommit = SafeOutputTree.prototype.commit;
+  const commitSpy = vi
+    .spyOn(SafeOutputTree.prototype, "commit")
+    .mockImplementation(async function (
+      this: SafeOutputTree,
+      signal?: AbortSignal,
+    ) {
+      await originalCommit.call(this, signal);
+      controller.abort(new Error("late abort after publication"));
+    });
+  const resourceScope = new ArtifactResourceScope();
+  try {
+    const result = await extractArtifact(
+      {
+        inputPath: zipPath,
+        inputFormat: "zip",
+        outputRoot: join(directory, "published-out"),
+        environment: {},
+        integrityPolicy: "fail",
+        resourceScope,
+      },
+      controller.signal,
+    );
+    expect(result.containment_verified).toBe(true);
+    expect(result.artifacts).toHaveLength(1);
+  } finally {
+    commitSpy.mockRestore();
     await resourceScope.close();
   }
 });

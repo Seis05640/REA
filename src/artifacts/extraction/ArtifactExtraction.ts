@@ -1,4 +1,17 @@
 import { assertAdmittedRootDigest } from "../inventory/classify.js";
+import {
+  MAX_DRY_RUN_PLAN_PAGE_BYTES,
+  boundDryRunBaseLimitations,
+  cacheValidatedDryRunPlan,
+  formatDryRunOversizedEntryLimitation,
+  sliceDryRunPlanCatalog,
+  sliceDryRunPlanCatalogWithDiagnostics,
+  truncateDryRunDiagnosticString,
+  tryReuseValidatedDryRunPlan,
+  type BuiltDryRunPlanCatalog,
+  type SlicedDryRunPlan,
+} from "./DryRunPlanCache.js";
+export { MAX_DRY_RUN_PLAN_PAGE_BYTES, formatDryRunOversizedEntryLimitation };
 import { assertArtifactFileSelectedSource } from "../ArtifactFileSource.js";
 import {
   assertArtifactSelectedSource,
@@ -101,9 +114,29 @@ const extractArtifactInScope = async (
 ): Promise<ArtifactExtractionResult> => {
   // Cancellation wins over every later refusal, including unsupported formats.
   abortIfNeeded(signal);
+  const pageOptions = resolveDryRunPlanPageOptions(input);
   const sourcePath = await resolveArtifactSourcePath(input.inputPath);
   if (input.expectedRootSha256 !== undefined)
     await assertArtifactSelectedSource(sourcePath, input.selectedPath);
+  if (input.dryRun === true && pageOptions.offset > 0) {
+    const reused = await tryReuseValidatedDryRunPlan({
+      input,
+      sourcePath,
+      signal,
+      buildResult: (cached) =>
+        createExtractionResult(
+          input,
+          cached.inventory,
+          cached.selected,
+          cached.extracted,
+          cached.traversal,
+          cached.materializationProvenance,
+          cached.unresolvedPlan,
+          cached.catalog,
+        ),
+    });
+    if (reused !== undefined) return reused;
+  }
   const probeFacts = await requireExtractableFormat(sourcePath, input, signal);
   const { snapshot, transferredSource } =
     await scanArtifactInventoryForExtractionInScope(
@@ -415,12 +448,10 @@ const materializeSelection = async ({
         signal,
       });
       if (isZipPackageFormat(inventory.manifest.root_format)) {
-        const admission = transferredSource?.admission;
-        if (!isStableRegularFileDescriptor(admission))
-          throw new ArtifactReaderFailure(
-            "integrity",
-            `Transferred ZIP source is not a stable regular-file descriptor: ${sourcePath}`,
-          );
+        const admission = requireStableRegularFileDescriptor(
+          sourcePath,
+          transferredSource?.admission,
+        );
         await revalidateTransferredZipSource(
           sourcePath,
           admission,
@@ -456,17 +487,45 @@ const materializeSelection = async ({
         [sourceClose],
         { kind: "artifact-inventory", inventory },
       );
+    abortIfNeeded(signal);
     extracted.sort((left, right) =>
       compareUnicodeCodePoints(left.relative_path, right.relative_path),
     );
+    const traversalSnapshot = traversal.snapshot();
+    const readerProvenance = reader.provenance();
+    let dryRunCatalog: BuiltDryRunPlanCatalog | undefined;
+    if (dryRun) {
+      dryRunCatalog = buildDryRunPlanCatalog(
+        inventory,
+        selected,
+        unresolvedPlan.byOccurrenceId,
+      );
+      await cacheValidatedDryRunPlan({
+        sourcePath,
+        input,
+        resolvedOutputRoot,
+        caseSensitivity: destinationCaseSensitivity,
+        snapshot: {
+          inventory,
+          selected,
+          extracted,
+          traversal: traversalSnapshot,
+          materializationProvenance: readerProvenance,
+          unresolvedPlan,
+          catalog: dryRunCatalog,
+        },
+        signal,
+      });
+    }
     completed = createExtractionResult(
       input,
       inventory,
       selected,
       extracted,
-      traversal.snapshot(),
-      reader.provenance(),
+      traversalSnapshot,
+      readerProvenance,
       unresolvedPlan,
+      dryRunCatalog,
     );
     if (input.expectedRootSha256 !== undefined)
       await assertArtifactSelectedSource(sourcePath, input.selectedPath);
@@ -494,12 +553,14 @@ const materializeSelection = async ({
     throw cause;
   } finally {
     // Cancellation must run after the last close for every source. A pure
-    // check throw must not mask an error already propagating from the try.
+    // check throw must not mask an error already propagating from the try or
+    // discard an extraction receipt after output has been durably published.
     try {
       abortIfNeeded(signal);
     } catch (abortCause: unknown) {
       if (
         pendingFailure === undefined &&
+        !(output?.published === true && completed !== undefined) &&
         abortCause instanceof ArtifactReaderFailure &&
         abortCause.reason === "cancelled"
       )
@@ -551,7 +612,7 @@ export const formatDryRunPlanPageLimitation = (
   nextOffset: number | null,
 ): string =>
   nextOffset !== null
-    ? `Dry-run plan entries are paged (${String(returnedEntries)} of ${String(totalEntries)} entries returned at offset ${String(offset)}; pass plan_offset=${String(nextOffset)} to inspect remaining entries).`
+    ? `Dry-run plan entries are paged (${String(returnedEntries)} of ${String(totalEntries)} entries returned at offset ${String(offset)}; pass plan_offset=${String(nextOffset)} or --plan-offset ${String(nextOffset)} to inspect remaining entries).`
     : `Dry-run plan entries are paged (${String(returnedEntries)} of ${String(totalEntries)} entries returned at offset ${String(offset)}).`;
 
 export const isStableRegularFileDescriptor = (
@@ -579,6 +640,18 @@ export const isStableRegularFileDescriptor = (
     typeof candidate.initial?.mtimeMs === "number" &&
     typeof candidate.initial?.ctimeMs === "number"
   );
+};
+
+export const requireStableRegularFileDescriptor = (
+  sourcePath: string,
+  value: unknown,
+): StableRegularFileDescriptor => {
+  if (!isStableRegularFileDescriptor(value))
+    throw new ArtifactReaderFailure(
+      "integrity",
+      `Transferred ZIP source is not a stable regular-file descriptor: ${sourcePath}`,
+    );
+  return value;
 };
 
 const revalidateTransferredZipSource = async (
@@ -728,6 +801,17 @@ const primeComponentLimitProbeState = async (
   }
 };
 
+const summarizeDryRunReasonPath = (path: string): string =>
+  path.length > 300 ? `${path.slice(0, 120)}...` : path;
+
+const formatDryRunOccurrenceLimitation = (
+  logicalPath: string,
+  limitation: string,
+): string =>
+  truncateDryRunDiagnosticString(
+    `${summarizeDryRunReasonPath(logicalPath)}: ${limitation}`,
+  );
+
 const overLimitDestinationReason = async (
   resolvedOutputRoot: string,
   destinationParent: string,
@@ -736,6 +820,7 @@ const overLimitDestinationReason = async (
   componentLimitState: DestinationComponentLimitProbeState,
   signal?: AbortSignal,
 ): Promise<string | undefined> => {
+  const displayPath = summarizeDryRunReasonPath(destinationPath);
   const segments = destinationPath.split("/");
   for (const segment of segments) {
     const byteLength = Buffer.byteLength(segment, "utf8");
@@ -743,7 +828,7 @@ const overLimitDestinationReason = async (
       byteLength > MAX_PORTABLE_NAME_BYTES ||
       segment.length > MAX_PORTABLE_NAME_BYTES
     )
-      return `Destination filesystem component length limit (such as 255-byte NAME_MAX) is not observed without creating files; segment of ${String(byteLength)} UTF-8 bytes in ${destinationPath} remains unresolved during dry-run.`;
+      return `Destination filesystem component length limit (such as 255-byte NAME_MAX) is not observed without creating files; segment of ${String(byteLength)} UTF-8 bytes in ${displayPath} remains unresolved during dry-run.`;
     const probeFailure = await probeDestinationComponentLimit(
       destinationParent,
       segment,
@@ -752,7 +837,7 @@ const overLimitDestinationReason = async (
       signal,
     );
     if (probeFailure !== null)
-      return `Destination filesystem component length probe on ${destinationParent} rejected or could not verify segment of ${String(byteLength)} UTF-8 bytes in ${destinationPath} (${probeFailure}); path remains unresolved during dry-run.`;
+      return `Destination filesystem component length probe on ${destinationParent} rejected or could not verify segment of ${String(byteLength)} UTF-8 bytes in ${displayPath} (${probeFailure}); path remains unresolved during dry-run.`;
   }
   const fullDestination = join(resolvedOutputRoot, ...segments);
   if (
@@ -761,10 +846,10 @@ const overLimitDestinationReason = async (
       Buffer.byteLength(fullDestination, "utf8") >
         MAX_PORTABLE_WIN32_PATH_LENGTH)
   )
-    return `Destination filesystem path length limit (such as 260-character Windows MAX_PATH) is not observed without creating files; destination path of ${String(fullDestination.length)} UTF-16 code units for ${destinationPath} remains unresolved during dry-run.`;
+    return `Destination filesystem path length limit (such as 260-character Windows MAX_PATH) is not observed without creating files; destination path of ${String(fullDestination.length)} UTF-16 code units for ${displayPath} remains unresolved during dry-run.`;
   const fullBytes = Buffer.byteLength(fullDestination, "utf8");
   if (fullBytes > MAX_PORTABLE_POSIX_PATH_BYTES)
-    return `Destination filesystem path length limit (such as 1024-byte Darwin/portable PATH_MAX) is not observed without creating files; destination path of ${String(fullBytes)} UTF-8 bytes for ${destinationPath} remains unresolved during dry-run.`;
+    return `Destination filesystem path length limit (such as 1024-byte Darwin/portable PATH_MAX) is not observed without creating files; destination path of ${String(fullBytes)} UTF-8 bytes for ${displayPath} remains unresolved during dry-run.`;
   return undefined;
 };
 
@@ -1044,31 +1129,54 @@ const resolveDryRunPlanPageOptions = (
   return { offset, limit };
 };
 
-const createDryRunPlan = (
+const buildDryRunPlanCatalog = (
   inventory: ArtifactInventorySnapshot,
   selected: readonly SelectedOccurrence[],
   unresolvedCaseReasons: ReadonlyMap<string, string>,
-  pageOptions: { readonly offset: number; readonly limit: number } = {
-    offset: 0,
-    limit: DEFAULT_DRY_RUN_PLAN_ENTRY_LIMIT,
-  },
-): ArtifactExtractionPlan => {
+): BuiltDryRunPlanCatalog => {
   const selectedById = new Map(
     selected.map((item) => [item.occurrence.occurrence_id, item] as const),
   );
   const nodesById = new Map(
     inventory.nodes.map((node) => [node.artifact_id, node] as const),
   );
+  const contradictionBytesByOccurrenceId = new Map<string, number>();
+  for (const contradiction of inventory.integrity_contradictions) {
+    if (!selectedById.has(contradiction.occurrence_id)) continue;
+    const prev =
+      contradictionBytesByOccurrenceId.get(contradiction.occurrence_id) ?? 0;
+    contradictionBytesByOccurrenceId.set(
+      contradiction.occurrence_id,
+      prev + Buffer.byteLength(JSON.stringify(contradiction), "utf8") + 2,
+    );
+  }
+  const perOccurrenceOverheadBytes = new Map<string, number>();
   const entries: ArtifactExtractionPlanEntry[] = [];
   let plannedFiles = 0;
   let unsupportedEntries = 0;
   let unresolvedEntries = 0;
   let observedBytesEstimate = 0;
   let declaredBytesEstimate: number | null = 0;
+  let maxEntryPathBytes = 0;
   for (const occurrence of inventory.occurrences) {
     if (occurrence.logical_path === ".") continue;
+    const pathBytes = Buffer.byteLength(occurrence.logical_path, "utf8");
+    if (pathBytes > maxEntryPathBytes) maxEntryPathBytes = pathBytes;
     const selectedItem = selectedById.get(occurrence.occurrence_id);
     if (selectedItem !== undefined) {
+      let overheadBytes =
+        contradictionBytesByOccurrenceId.get(occurrence.occurrence_id) ?? 0;
+      for (const limitation of occurrence.limitations) {
+        const formatted = formatDryRunOccurrenceLimitation(
+          occurrence.logical_path,
+          limitation,
+        );
+        overheadBytes +=
+          Buffer.byteLength(JSON.stringify(formatted), "utf8") + 2;
+      }
+      if (overheadBytes > 0) {
+        perOccurrenceOverheadBytes.set(occurrence.occurrence_id, overheadBytes);
+      }
       const unresolvedReason = unresolvedCaseReasons.get(
         occurrence.occurrence_id,
       );
@@ -1079,7 +1187,7 @@ const createDryRunPlan = (
           logical_path: occurrence.logical_path,
           entry_kind: occurrence.entry_kind,
           status: "unresolved",
-          reason: unresolvedReason,
+          reason: truncateDryRunDiagnosticString(unresolvedReason),
           observed_bytes: selectedItem.node.size,
           declared_bytes: occurrence.declared_size,
         });
@@ -1111,7 +1219,7 @@ const createDryRunPlan = (
         logical_path: occurrence.logical_path,
         entry_kind: occurrence.entry_kind,
         status: "unresolved",
-        reason: unresolvedNonFileReason,
+        reason: truncateDryRunDiagnosticString(unresolvedNonFileReason),
         observed_bytes: null,
         declared_bytes: occurrence.declared_size,
       });
@@ -1160,26 +1268,10 @@ const createDryRunPlan = (
       compareUnicodeCodePoints(left.logical_path, right.logical_path) ||
       compareUnicodeCodePoints(left.occurrence_id, right.occurrence_id),
   );
-  const totalEntries = entries.length;
-  const pagedEntries = entries.slice(
-    pageOptions.offset,
-    pageOptions.offset + pageOptions.limit,
-  );
-  const nextOffset =
-    pageOptions.offset + pagedEntries.length < totalEntries
-      ? pageOptions.offset + pagedEntries.length
-      : null;
-  const truncated = nextOffset !== null || pageOptions.offset > 0;
   return {
-    entries: pagedEntries,
-    page: {
-      total_entries: totalEntries,
-      offset: pageOptions.offset,
-      limit: pageOptions.limit,
-      returned_entries: pagedEntries.length,
-      next_offset: nextOffset,
-      truncated,
-    },
+    allEntries: entries,
+    maxEntryPathBytes,
+    perOccurrenceOverheadBytes,
     totals: {
       planned_files: plannedFiles,
       unsupported_entries: unsupportedEntries,
@@ -1192,6 +1284,22 @@ const createDryRunPlan = (
     },
   };
 };
+
+const createDryRunPlan = (
+  inventory: ArtifactInventorySnapshot,
+  selected: readonly SelectedOccurrence[],
+  unresolvedCaseReasons: ReadonlyMap<string, string>,
+  pageOptions: { readonly offset: number; readonly limit: number } = {
+    offset: 0,
+    limit: DEFAULT_DRY_RUN_PLAN_ENTRY_LIMIT,
+  },
+  baseOverheadBytes = 2048,
+): ArtifactExtractionPlan =>
+  sliceDryRunPlanCatalog(
+    buildDryRunPlanCatalog(inventory, selected, unresolvedCaseReasons),
+    pageOptions,
+    baseOverheadBytes,
+  );
 
 const writeSelectedEntries = async ({
   reader,
@@ -1286,6 +1394,7 @@ const createExtractionResult = (
     byOccurrenceId: new Map(),
     limitations: [],
   },
+  prebuiltCatalog?: BuiltDryRunPlanCatalog,
 ): ArtifactExtractionResult => {
   const selectedIds = new Set(
     selected.map(({ occurrence }) => occurrence.occurrence_id),
@@ -1293,27 +1402,61 @@ const createExtractionResult = (
   const integrityContradictions = inventory.integrity_contradictions.filter(
     ({ occurrence_id: id }) => selectedIds.has(id),
   );
+  const fullSelectedOccurrenceIds = selected
+    .map(({ occurrence }) => occurrence.occurrence_id)
+    .sort(compareUnicodeCodePoints);
   const extractionSemantic = {
     source_manifest_id: inventory.manifest.manifest_id,
-    selected_occurrence_ids: selected
-      .map(({ occurrence }) => occurrence.occurrence_id)
-      .sort(compareUnicodeCodePoints),
+    selected_occurrence_ids: fullSelectedOccurrenceIds,
     files_sha256: digestCanonicalValue(extracted, "Artifact"),
     output_root_alias: "$OUTPUT_ROOT" as const,
   };
   const dryRun = input.dryRun === true;
   const pageOptions = resolveDryRunPlanPageOptions(input);
-  const plan = dryRun
-    ? createDryRunPlan(
-        inventory,
-        selected,
-        unresolvedPlan.byOccurrenceId,
+  const boundedTraversalLimitations = dryRun
+    ? boundDryRunBaseLimitations(traversal.limitations)
+    : traversal.limitations;
+  const boundedUnresolvedLimitations = dryRun
+    ? boundDryRunBaseLimitations(unresolvedPlan.limitations)
+    : unresolvedPlan.limitations;
+  const baseOverheadBytes = dryRun
+    ? Buffer.byteLength(JSON.stringify(inventory.manifest), "utf8") +
+      Buffer.byteLength(JSON.stringify(input.outputRoot), "utf8") +
+      Buffer.byteLength(JSON.stringify(inventory.provenance), "utf8") +
+      Buffer.byteLength(JSON.stringify(materializationProvenance), "utf8") +
+      Buffer.byteLength(JSON.stringify(boundedTraversalLimitations), "utf8") +
+      Buffer.byteLength(JSON.stringify(boundedUnresolvedLimitations), "utf8") +
+      2048
+    : 0;
+  const slicedPlan: SlicedDryRunPlan | undefined = dryRun
+    ? sliceDryRunPlanCatalogWithDiagnostics(
+        prebuiltCatalog ??
+          buildDryRunPlanCatalog(
+            inventory,
+            selected,
+            unresolvedPlan.byOccurrenceId,
+          ),
         pageOptions,
+        baseOverheadBytes,
       )
     : undefined;
+  const plan = slicedPlan?.plan;
+  const oversizedEntryLimitation = slicedPlan?.oversizedEntryLimitation;
   const platform = input.platform ?? process.platform;
+  const truncated = plan?.page?.truncated === true;
+  const pagedEntryIds =
+    truncated && plan !== undefined
+      ? new Set(plan.entries.map((entry) => entry.occurrence_id))
+      : undefined;
+  const returnedSelectedOccurrenceIds =
+    pagedEntryIds === undefined || plan === undefined
+      ? fullSelectedOccurrenceIds
+      : plan.entries
+          .filter((entry) => selectedIds.has(entry.occurrence_id))
+          .map((entry) => entry.occurrence_id)
+          .sort(compareUnicodeCodePoints);
   const pagedPlannedPaths =
-    plan?.page?.truncated === true
+    truncated && plan !== undefined
       ? new Set(
           plan.entries
             .filter((entry) => entry.status === "planned")
@@ -1326,10 +1469,23 @@ const createExtractionResult = (
     pagedPlannedPaths === undefined
       ? extracted
       : extracted.filter((item) => pagedPlannedPaths.has(item.relative_path));
+  const selectedForLimitations =
+    pagedEntryIds === undefined
+      ? selected
+      : selected.filter(({ occurrence }) =>
+          pagedEntryIds.has(occurrence.occurrence_id),
+        );
+  const returnedIntegrityContradictions =
+    pagedEntryIds === undefined
+      ? integrityContradictions
+      : integrityContradictions.filter(({ occurrence_id: id }) =>
+          pagedEntryIds.has(id),
+        );
   return artifactExtractionResultSchema.parse({
     manifest: inventory.manifest,
     extraction_manifest: {
       ...extractionSemantic,
+      selected_occurrence_ids: returnedSelectedOccurrenceIds,
       extraction_id: `aex_${digestCanonicalValue(extractionSemantic, "Artifact")}`,
     },
     output_root: input.outputRoot,
@@ -1347,12 +1503,17 @@ const createExtractionResult = (
       ...inventory.coverage,
       status: traversal.status,
     },
-    integrity_contradictions: integrityContradictions,
+    integrity_contradictions: returnedIntegrityContradictions,
     limitations: [
-      ...traversal.limitations,
-      ...selected.flatMap(({ occurrence }) =>
-        occurrence.limitations.map(
-          (limitation) => `${occurrence.logical_path}: ${limitation}`,
+      ...boundedTraversalLimitations,
+      ...selectedForLimitations.flatMap(({ occurrence }) =>
+        occurrence.limitations.map((limitation) =>
+          dryRun
+            ? formatDryRunOccurrenceLimitation(
+                occurrence.logical_path,
+                limitation,
+              )
+            : `${occurrence.logical_path}: ${limitation}`,
         ),
       ),
       dryRun
@@ -1368,7 +1529,10 @@ const createExtractionResult = (
       dryRun
         ? DRY_RUN_BYTE_TOTALS_LIMITATION
         : "Publication verifies the selected inventoried regular files; it does not establish complete content decoding.",
-      ...unresolvedPlan.limitations,
+      ...boundedUnresolvedLimitations,
+      ...(oversizedEntryLimitation !== undefined
+        ? [oversizedEntryLimitation]
+        : []),
       ...(plan?.page?.truncated === true
         ? [
             formatDryRunPlanPageLimitation(
