@@ -396,27 +396,36 @@ const canonicalJson = (value: unknown): string => {
 };
 
 /** Project a binary into the path-free identity used for cache invalidation. */
-export const snapshotTarget = (
+export const snapshotTarget = (target: BinaryTarget): AnalysisSnapshotTarget =>
+  target.format === "raw-binary"
+    ? {
+        sha256: target.sha256,
+        kind: target.kind,
+        architecture: target.architecture,
+        debug_companion: machOCompanionIdentity(target),
+        format: target.format,
+        entry_point: target.entryPoint,
+      }
+    : {
+        sha256: target.sha256,
+        kind: target.kind,
+        architecture: target.architecture ?? null,
+        debug_companion: machOCompanionIdentity(target),
+        format: target.format,
+      };
+
+/** A dSYM change is a different analysis input, not the same target. */
+const machOCompanionIdentity = (
   target: BinaryTarget,
-): AnalysisSnapshotTarget => {
-  const identity = {
-    sha256: target.sha256,
-    kind: target.kind,
-    architecture: target.architecture ?? null,
-    debug_companion:
-      (target.format === "mach-o" || target.format === "mach-o-universal") &&
-      target.debugCompanion !== undefined
-        ? {
-            source_path: target.debugCompanion.sourcePath,
-            uuid: target.debugCompanion.uuid,
-            member_sha256: target.debugCompanion.memberSha256,
-          }
-        : null,
-  };
-  return target.format === "raw-binary"
-    ? { ...identity, format: target.format, entry_point: target.entryPoint }
-    : { ...identity, format: target.format };
-};
+): AnalysisSnapshotTarget["debug_companion"] =>
+  (target.format === "mach-o" || target.format === "mach-o-universal") &&
+  target.debugCompanion !== undefined
+    ? {
+        source_path: target.debugCompanion.sourcePath,
+        uuid: target.debugCompanion.uuid,
+        member_sha256: target.debugCompanion.memberSha256,
+      }
+    : null;
 
 /** Build the immutable provider/profile binding used by a cached snapshot. */
 export const snapshotBinding = (

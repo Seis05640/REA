@@ -409,8 +409,8 @@ const runAnalysis = async (
       if (!prepared.ok) return cliError(prepared.error);
       const { snapshot } = prepared.value;
       let resolvedTarget: ResolvedSessionOpen | undefined;
-      if (snapshot !== undefined) {
-        const preview = await session.previewPath(path, {
+      if (snapshot !== undefined && prepared.value.target !== undefined) {
+        const preview = await session.previewTarget(prepared.value.target, {
           signal,
           snapshot,
           ...(options.formatHint === undefined
@@ -422,9 +422,6 @@ const runAnalysis = async (
           ...(options.entryPoint === undefined
             ? {}
             : { entryPoint: options.entryPoint }),
-          ...(options.dsymPath === undefined
-            ? {}
-            : { dsymPath: options.dsymPath }),
           ...(options.providerId === undefined
             ? {}
             : { providerId: options.providerId }),
@@ -780,7 +777,10 @@ const prepareSnapshot = async (options: {
   readonly snapshotPath: string | undefined;
   readonly signal: AbortSignal;
 }): Promise<
-  Result<{ readonly snapshot?: AnalysisSnapshot }, AnalysisError>
+  Result<
+    { readonly snapshot?: AnalysisSnapshot; readonly target?: BinaryTarget },
+    AnalysisError
+  >
 > => {
   const { path, snapshotPath, session } = options;
   if (snapshotPath === undefined || !(await fileExists(snapshotPath)))

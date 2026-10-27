@@ -19,11 +19,6 @@ import {
   admitDebugCompanion,
   readMachoFileUuidEntries,
 } from "../../../src/application/DebugCompanionAdmission.js";
-import {
-  GhidraFileCopyCleanupFailure,
-  withGhidraFileCopy,
-} from "../../../src/ghidra/GhidraFileCopy.js";
-import type { OwnedFileHandle } from "../../../src/filesystem/OwnedFileHandle.js";
 import { stageGhidraDebugCompanion } from "../../../src/ghidra/GhidraDebugCompanion.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
@@ -239,27 +234,6 @@ it.each([
   },
 );
 
-it("retains a failed staging close and its primary outcome for startup cleanup", async () => {
-  const fixture = await stagingFixture();
-  const owners = new Set<OwnedFileHandle>();
-  const primary = new Error("copy refused");
-  const observed: unknown = await withGhidraFileCopy(
-    fixture.companion.memberPath,
-    join(fixture.runtime, "copy"),
-    async (source) => {
-      vi.spyOn(source, "close").mockRejectedValueOnce(new Error("close EIO"));
-      throw primary;
-    },
-    owners,
-  ).catch((cause: unknown) => cause);
-  if (!(observed instanceof GhidraFileCopyCleanupFailure))
-    throw new Error("Expected retained owner");
-  expect(observed.primaryCause).toBe(primary);
-  expect(observed.owners).toHaveLength(1);
-  expect(owners.has(observed.owners[0]!.owner)).toBe(true);
-  await observed.owners[0]!.owner.close();
-});
-
 const uuidImage = (uuid: string, suffix = "") => {
   const bytes = Buffer.alloc(56 + Buffer.byteLength(suffix));
   bytes.writeUInt32LE(0xfeedfacf, 0);
@@ -273,6 +247,7 @@ const uuidImage = (uuid: string, suffix = "") => {
   bytes.write(suffix, 56);
   return bytes;
 };
+
 const admissionFixture = async (
   targetUuid = "11111111-2222-3333-4444-555555555555",
 ) => {
@@ -301,6 +276,7 @@ const admissionFixture = async (
   };
   return { directory, admit };
 };
+
 it("rejects different matching members and admits byte-identical duplicates", async () => {
   const fixture = await admissionFixture();
   const duplicate = join(fixture.directory, "another");

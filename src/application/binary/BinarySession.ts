@@ -478,7 +478,6 @@ export class BinarySession
     return this.#open(
       (admitted) =>
         resolveSessionOpen({
-          resources: this.fileResources,
           router: this.#providerRouter,
           current: this.#active,
           path,

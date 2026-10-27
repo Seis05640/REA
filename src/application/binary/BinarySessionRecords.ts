@@ -7,10 +7,10 @@ import type { EvidenceBundle } from "../../domain/evidenceBundle.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { evidenceBundleForTarget } from "../../domain/evidenceBundle.js";
 import {
+  EvidenceFileError,
   EvidenceIntegrityError,
   AnalysisSnapshotMismatchError,
 } from "../../domain/evidenceErrors.js";
-import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import type { AnalysisInputError } from "../../domain/analysisErrorCore.js";
 import type { UnknownRegistryError } from "../../domain/unknownRegistryError.js";
@@ -142,13 +142,13 @@ export abstract class BinarySessionRecords {
   ): Promise<
     Result<{ readonly path: string; readonly bytes: number }, AnalysisError>
   > {
-    return writeSnapshotFile(snapshot, path, overwrite, this.fileResources);
+    return writeSnapshotFile(snapshot, path, overwrite, this.#writeResources);
   }
 
   /** Retry retained target reads and snapshot files at the owning session shutdown. */
   async closeFileResources(): Promise<Result<null, AnalysisError>> {
     try {
-      await this.fileResources.retryCleanup();
+      await this.#writeResources.retryCleanup();
       return ok(null);
     } catch (cause: unknown) {
       const observation = ArtifactReaderFailure.cleanupObservation(

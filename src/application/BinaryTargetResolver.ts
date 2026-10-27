@@ -29,7 +29,7 @@ import {
   stat,
   type FileHandle,
 } from "node:fs/promises";
-import { extname } from "node:path";
+import { extname, isAbsolute, resolve } from "node:path";
 
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { BinaryTargetError } from "../domain/configurationErrors.js";
@@ -1023,7 +1023,6 @@ const readElfMetadata = async (
     mips: {
       ...parsed.value.mips,
       abiFlags: declarations.value.abiFlags,
-      gnuAttributes: declarations.value.gnuAttributes,
       ...(declarations.value.sharedLoad === undefined
         ? {}
         : { sharedLoad: declarations.value.sharedLoad }),

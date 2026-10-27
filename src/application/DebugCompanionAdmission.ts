@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { constants, type Stats } from "node:fs";
-import { open, readdir, stat } from "node:fs/promises";
+import type { Dir, Stats } from "node:fs";
+import { opendir, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { FileHandle } from "node:fs/promises";
 import { OwnedDirectoryHandle } from "../filesystem/OwnedDirectoryHandle.js";
@@ -91,8 +91,14 @@ const CPU_TYPES: Readonly<Record<BinaryArchitecture, readonly number[]>> = {
   arm: [0x0000000c],
   arm64: [0x0100000c],
   mips: [],
+  // 6502 is admitted only as an explicit raw load, never as a Mach-O family.
+  "6502": [],
   // RISCV has no Mach-O cputype in REA's header families; it is ELF-only.
   riscv: [],
+  // These families have no Mach-O cputype; companions can never match them.
+  hexagon: [],
+  m68k: [],
+  powerpc: [],
 };
 
 /** Admitted identity of a caller-selected dSYM companion. */
@@ -357,7 +363,7 @@ export const admitDebugCompanion = async (input: {
       reason: `dsym_path is not a .dSYM bundle directory: ${dsymPath}`,
     });
   const dwarfDirectory = join(dsymPath, DSYM_DWARF_DIRECTORY);
-  let names: string[];
+  let directory: Dir;
   try {
     directory = await opendir(dwarfDirectory, {
       bufferSize: MEMBER_COUNT_LIMIT + 1,
@@ -478,37 +484,9 @@ export const admitDebugCompanion = async (input: {
   for (const memberPath of memberPaths.sort()) {
     throwIfCancelled(signal);
     try {
-      const initial = await memberHandle.stat();
-      if (!initial.isFile()) continue;
-      if (initial.size > MEMBER_SIZE_LIMIT_BYTES)
-        return err({
-          reason: `dsym DWARF member exceeds the supported size: ${memberPath}`,
-        });
-      const memberEntries = await readMachoFileUuidEntries(
-        memberHandle,
-        initial.size,
-        signal === undefined ? {} : { signal },
-      );
-      if (!memberEntries.ok) {
-        if (memberEntries.error.kind === "resource-limit")
-          return err({ reason: memberEntries.error.reason });
-        continue;
-      }
-      const matched = debugCompanionMatches({
-        executableUuids: selectedUuids,
-        companionUuids: memberEntries.value
-          .map(({ uuid }) => uuid)
-          .filter((uuid): uuid is string => uuid !== null),
-      });
-      if (!matched.ok) continue;
-      const memberSha256 = await digestOpenHandle(
-        memberHandle,
-        initial,
-        signal,
-      );
-      if (!memberSha256.ok) return err({ reason: memberSha256.error });
-      return ok({
-        sourcePath: dsymPath,
+      const candidate = await withRegularFile<
+        Result<MachODebugCompanion | null, DebugCompanionRejection>
+      >(
         memberPath,
         async (memberHandle, initial) => {
           const memberEntries = await readMachoFileUuidEntries(
