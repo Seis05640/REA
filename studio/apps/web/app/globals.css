@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+/* Forensic lab notebook: warm paper, ink, one signal color. */
+:root {
+  --paper: #f2ede3;
+  --paper-2: #e8e0d0;
+  --card: #fbf8f1;
+  --ink: #1c1a16;
+  --ink-2: #4b463d;
+  --ink-3: #887f70;
+  --rule: #d3c9b6;
+  --rule-faint: rgba(120, 104, 76, 0.07);
+  --signal: #d4401a;
+  --signal-ink: #fff6f0;
+  --ok: #2c6a37;
+  --warn: #9a6200;
+  --err: #b0261c;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #12110e;
+    --paper-2: #1b1a16;
+    --card: #181713;
+    --ink: #ece5d6;
+    --ink-2: #b9b09f;
+    --ink-3: #7c7567;
+    --rule: #34302a;
+    --rule-faint: rgba(236, 229, 214, 0.035);
+    --signal: #ff6b3f;
+    --signal-ink: #1a0b05;
+    --ok: #74c383;
+    --warn: #e4aa3f;
+    --err: #ff7e70;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+  --font-display: var(--font-display-family), Georgia, serif;
+  --font-sans: var(--font-sans-family), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-mono-family), ui-monospace, monospace;
+}
+
+html,
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-image:
+    linear-gradient(var(--rule-faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule-faint) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--signal);
+  color: var(--signal-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+/* A rubber-stamp frame for approval requests. */
+.stamp {
+  border: 2px solid var(--signal);
+  box-shadow:
+    inset 0 0 0 3px var(--card),
+    inset 0 0 0 4px var(--signal);
+}
+
+.prose-notes h1,
+.prose-notes h2,
+.prose-notes h3 {
+  font-family: var(--font-display);
+  line-height: 1.15;
+  margin: 1.1em 0 0.4em;
+}
+.prose-notes h1 {
+  font-size: 1.7rem;
+}
+.prose-notes h2 {
+  font-size: 1.35rem;
+}
+.prose-notes h3 {
+  font-size: 1.1rem;
+}
+.prose-notes p,
+.prose-notes ul,
+.prose-notes ol {
+  margin: 0.5em 0;
+  line-height: 1.6;
+}
+.prose-notes ul {
+  list-style: square;
+  padding-left: 1.3em;
+}
+.prose-notes ol {
+  list-style: decimal;
+  padding-left: 1.3em;
+}
+.prose-notes code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--paper-2);
+  padding: 0.05em 0.3em;
+}
+.prose-notes pre {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background: var(--paper-2);
+  border-left: 3px solid var(--rule);
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  margin: 0.7em 0;
+}
+.prose-notes pre code {
+  background: none;
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .pulse-dot {
+    animation: none;
+  }
+}
