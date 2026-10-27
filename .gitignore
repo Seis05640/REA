@@ -6,6 +6,7 @@ __pycache__/
 # Distribution
 dist/
 build/
+release/desktop/
 node_modules
 *.egg-info/
 *.egg

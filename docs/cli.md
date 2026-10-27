@@ -5,6 +5,7 @@ workflows and evidence contracts as REA's MCP server. Each CLI invocation is a
 separate process; save results when you want to use them in a later command.
 For a pinned, noninteractive workflow with retained reports, see
 [static analysis in GitHub Actions](ci-analysis.md).
+For a graphical desktop workflow, see [REA Desktop](desktop-app.md).
 
 ## Run a command
 

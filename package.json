@@ -136,6 +136,10 @@
     "check:ci:deep:tasks": "node scripts/run-turbo.mjs run knip metadata:check jscpd scan:todos",
     "ci:static-context": "node scripts/ci/static-task-context.mjs",
     "build:cached": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts node scripts/run-turbo.mjs run artifacts:skills",
+    "desktop:runtime": "node node_modules/electron/install.js",
+    "desktop:dev": "npm run desktop:runtime && electron desktop/main.mjs",
+    "desktop:prepare-runtime": "node desktop/prepare-runtime.mjs",
+    "desktop:dist": "npm run build:cached && npm run desktop:runtime && npm run desktop:prepare-runtime && electron-builder --publish never",
     "build:termux": "node scripts/run-exclusive.mjs artifacts npm run build:termux:run",
     "build:termux:run": "npm run compile:termux && npm run artifacts:skills",
     "format": "oxfmt .",
@@ -403,10 +407,13 @@
     "@types/write-file-atomic": "4.0.3",
     "@types/ws": "8.18.1",
     "@vitest/coverage-v8": "5.0.3",
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0",
     "husky": "9.1.7",
     "jscpd": "5.0.12",
     "knip": "6.39.0",
     "lint-staged": "16.4.0",
+    "node": "24.22.1",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "oxlint-tsgolint": "7.0.2005",
@@ -425,6 +432,73 @@
     "frida": "17.23.2"
   },
   "allowScripts": {
-    "frida@17.23.2": true
+    "frida@17.23.2": true,
+    "node@24.22.1": true
+  },
+  "build": {
+    "appId": "tools.rea.desktop",
+    "productName": "REA",
+    "extraMetadata": {
+      "main": "desktop/main.mjs"
+    },
+    "directories": {
+      "output": "release/desktop"
+    },
+    "files": [
+      "desktop/**/*",
+      "dist/**/*",
+      "scripts/**/*",
+      "bridge/**/*",
+      "native/windows/build/**/*",
+      "package.json",
+      "README.md",
+      "DISCLAIMER.md",
+      "THIRD_PARTY_NOTICES.md",
+      "LICENSE",
+      "licenses/**/*"
+    ],
+    "asarUnpack": [
+      "scripts/**/*",
+      "dist/**/*",
+      "bridge/**/*",
+      "native/windows/build/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/desktop-runtime",
+        "to": "node-runtime",
+        "filter": [
+          "node",
+          "node.exe",
+          "LICENSE"
+        ]
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSE",
+        "to": "electron/LICENSE"
+      },
+      {
+        "from": "node_modules/electron/dist/LICENSES.chromium.html",
+        "to": "electron/LICENSES.chromium.html"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
+    }
   }
 }
