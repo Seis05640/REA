@@ -1,6 +1,7 @@
-import type {
-  StateEntity,
-  StateType,
+import {
+  markedDeleted,
+  type StateEntity,
+  type StateType,
 } from "../../domain/analysisView/environmentStateRules.js";
 import { nextSequence } from "../../domain/analysisView/environmentStateWriteValues.js";
 import {
@@ -100,6 +101,7 @@ export const initialStateBytes = (state: EnvironmentState): number =>
  */
 export class EnvironmentStateStore {
   #entities: ReadonlyMap<string, StateEntity> = new Map();
+  #storedDeleted: ReadonlyMap<string, StateEntity> = new Map();
   #collections: ReadonlyMap<string, readonly StateEntity[]> = new Map();
   #typeCollections: ReadonlyMap<string, readonly string[]> = new Map();
   #documents: ReadonlyMap<string, HeldDocument> = new Map();
@@ -247,7 +249,9 @@ export class EnvironmentStateStore {
 
   /** Every held entity of a type, in state order. */
   ofType(type: string): readonly StateEntity[] {
-    return this.#content.entities.filter((entity) => entity.type === type);
+    return this.#content.entities.filter(
+      (entity) => entity.type === type && !markedDeleted(entity.fields),
+    );
   }
 
   /** Add an entity at `index` of its collection's order, unless the state would outgrow what `data/add` loads. */
@@ -255,9 +259,16 @@ export class EnvironmentStateStore {
     entity: StateEntity,
     index: number,
   ): Result<void, AnalysisResourceConstraintError> {
-    const entities = this.#content.entities;
+    const key = compositeKey([entity.type, entity.collection, entity.id]);
+    const replaced = this.#storedDeleted.get(key);
+    const entities =
+      replaced === undefined
+        ? this.#content.entities
+        : this.#content.entities.filter((held) => held !== replaced);
     const bytes = this.#grown(
-      jsonByteLength(entity) + (entities.length > 0 ? 1 : 0),
+      jsonByteLength(entity) -
+        (replaced === undefined ? 0 : jsonByteLength(replaced)) +
+        (replaced === undefined && entities.length > 0 ? 1 : 0),
     );
     if (!bytes.ok) return bytes;
     const known = this.#knownCollections.get(entity.type);
@@ -390,7 +401,9 @@ export class EnvironmentStateStore {
     id: string,
   ): StateEntity | undefined {
     const key = compositeKey([type, collection, id]);
-    return this.#entities.has(key) ? undefined : this.#deleted.get(key);
+    return this.#entities.has(key)
+      ? undefined
+      : (this.#storedDeleted.get(key) ?? this.#deleted.get(key));
   }
 
   #keepDeleted(entity: StateEntity): void {
@@ -510,9 +523,20 @@ export class EnvironmentStateStore {
   /** Build current-state indexes without copying baseline collections into generated history. */
   #install(content: StateContent, bytes: number): void {
     const entities = new Map<string, StateEntity>();
+    const storedDeleted = new Map<string, StateEntity>();
     const collections = new Map<string, StateEntity[]>();
     const typeCollections = new Map<string, string[]>();
     for (const entity of content.entities) {
+      if (markedDeleted(entity.fields)) {
+        storedDeleted.set(
+          compositeKey([entity.type, entity.collection, entity.id]),
+          entity,
+        );
+        const named = typeCollections.get(entity.type) ?? [];
+        if (!named.includes(entity.collection)) named.push(entity.collection);
+        typeCollections.set(entity.type, named);
+        continue;
+      }
       entities.set(
         compositeKey([entity.type, entity.collection, entity.id]),
         entity,
@@ -527,9 +551,11 @@ export class EnvironmentStateStore {
       const named = typeCollections.get(entity.type);
       if (named === undefined)
         typeCollections.set(entity.type, [entity.collection]);
-      else named.push(entity.collection);
+      else if (!named.includes(entity.collection))
+        named.push(entity.collection);
     }
     this.#entities = entities;
+    this.#storedDeleted = storedDeleted;
     this.#collections = collections;
     this.#typeCollections = typeCollections;
     this.#documents = new Map(
