@@ -1,7 +1,7 @@
 # Verification
 
 Executed on macOS with Node v24.22.1 on this branch and on #7539 at `30e2a582`; the census and the base reproduction
-were repeated after merging #7539 at `2817665d`.
+were repeated after merging #7539 at `2817665d` and at `174a0ff2`.
 
 ## Diagnosis
 
@@ -24,7 +24,7 @@ bundles after a delete (7) and Miniflux's bookmark toggle (5).
 
 - `npm run -s check:fast`, `format:check`, `knip`, `scan:todos`, `docs:check`, `verify:test-discovery`,
   `mcp-catalog:check` and `jscpd`: passed.
-- `npx vitest run --project domain --project services`: 11,880 passed, 6 skipped, merged with `2817665d`. An earlier run of the suite failed a
+- `npx vitest run --project domain --project services`: 11,883 passed, 6 skipped, merged with `174a0ff2`. An earlier run of the suite failed a
   `SetupRegistrationPrewarm` runner test whose child process outran its 5-second timeout; alone it passes on this
   branch and on #7539 (3.0 to 4.7 seconds).
 - `npm run -s test:focused --` the environment build, export and serve CLI boundaries, the analysis-view CLI and MCP
@@ -44,13 +44,13 @@ bundles after a delete (7) and Miniflux's bookmark toggle (5).
   `null` shelf where every recorded create named one; an entry the recording never starred flips on each call.
 - Records: a hidden request body is absent when the request names no `Content-Type`, and stays unusable when it names
   one.
-- The nine behaviour tests fail on #7539 at `30e2a582` and at `2817665d`; the three that guard toggles and `null` ids
+- The nine behaviour tests fail on #7539 at `30e2a582`, `2817665d` and `174a0ff2`; the three that guard toggles and `null` ids
   pass there too.
 
 ## Write plans and views over recorded captures
 
 The 148 captures, built by #7539 and by this branch: 694 plans, 392 served and 399, both at `30e2a582` and after
-merging `2817665d`.
+merging `2817665d` and `174a0ff2`.
 
 - No write goes from served to withheld, and no served plan changes. Newly served: Grafana's folder create, update and
   delete in a fresh recording; Homebox's item create in another; Miniflux's bookmark toggle in three recordings.
@@ -69,7 +69,9 @@ Greptile's review of `4e777d28` raised five findings. Two were in this branch's 
 - A create sending a reference's member as `null` after a later create added the reference, the first having shown no
   such field, was withheld: the empty-reference agreement now applies there too.
 
-Both tests fail on `4e777d28`; the census is unchanged. The other three were #7332's and #7539's code, handled there.
+Both tests fail on `4e777d28` and on #7539 at `174a0ff2`; the census is unchanged. The other three were in #7332's and
+#7539's code: `308aebf0` (#7332), already here, covers the made-object count, and #7539's `174a0ff2`, merged here,
+fixes the update default and the read clock spelling.
 
 ## Not verified
 
