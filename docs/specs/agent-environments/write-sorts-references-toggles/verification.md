@@ -23,9 +23,9 @@ bundles after a delete (7) and Miniflux's bookmark toggle (5).
 
 - `npm run -s check:fast`, `format:check`, `knip`, `scan:todos`, `docs:check`, `verify:test-discovery`,
   `mcp-catalog:check` and `jscpd`: passed.
-- `npx vitest run --project domain --project services`: 11,872 passed, 6 skipped, 1 failed: a `SetupRegistrationPrewarm`
-  runner test whose child process outran its 5-second timeout under the full run; alone it passes on this branch and
-  on #7539 (3.0 to 4.7 seconds).
+- `npx vitest run --project domain --project services`: 11,875 passed, 6 skipped. An earlier run of the suite failed a
+  `SetupRegistrationPrewarm` runner test whose child process outran its 5-second timeout; alone it passes on this
+  branch and on #7539 (3.0 to 4.7 seconds).
 - `npm run -s test:focused --` the environment build, export and serve CLI boundaries, the analysis-view CLI and MCP
   boundaries and the environment serve MCP boundary: 7 files, 81 passed. `outputSchemaProfile`, `toolSchemaValidity`,
   `mcpSchemaValidation`, `outputSchemaSemanticConstraints` and `analysisViewMcp`: 5 files, 54 passed; the compact
