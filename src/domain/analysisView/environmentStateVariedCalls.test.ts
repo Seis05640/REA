@@ -80,4 +80,60 @@ describe("writes whose calls send different members", () => {
     expect(plan).toMatchObject({ served: true });
     expect(plan.body?.defaults).toEqual([{ member: "owner", value: null }]);
   });
+
+  it("recognizes a sent array when learning a later omitted-member default", () => {
+    const a = { id: 1, name: "A", tags: ["x"] };
+    const b = { id: 2, name: "B", tags: ["y"] };
+    const changedA = { ...a, name: "AA" };
+    const changedB = { ...b, name: "BB", tags: [] };
+    const rows: readonly TimedCaptureRow[] = [
+      ["GET", "/api/tags", [a, b]],
+      ["GET", "/api/tags/1", a],
+      ["GET", "/api/tags/2", b],
+      ["PUT", "/api/tags/1", changedA, 200, { name: "AA", tags: ["x"] }],
+      ["GET", "/api/tags/1", changedA],
+      ["PUT", "/api/tags/2", changedB, 200, { name: "BB" }],
+      ["GET", "/api/tags/2", changedB],
+      ["GET", "/api/tags", [changedA, changedB]],
+    ];
+    expect(planOf(rows, "put_tags_by_id")).toMatchObject({ served: true });
+  });
+
+  it("withholds a sent sequence value contradicted by its recorded answer", () => {
+    const rows: readonly TimedCaptureRow[] = [
+      ...NUMBERED_UNLESS_SENT_ROWS.map((row) =>
+        row[0] === "GET" && row[1] === "/api/bundles" && Array.isArray(row[2])
+          ? ([
+              row[0],
+              row[1],
+              (row[2] as { id: number; name: string }[]).map(
+                ({ id, name }) => ({ id, name }),
+              ),
+            ] as TimedCaptureRow)
+          : row,
+      ),
+      [
+        "POST",
+        "/api/bundles",
+        { id: 5, name: "Echo", order: 10 },
+        201,
+        { name: "Echo", order: 9 },
+      ],
+      [
+        "GET",
+        "/api/bundles",
+        [
+          { id: 1, name: "Alpha" },
+          { id: 2, name: "Bravo" },
+          { id: 3, name: "Charlie" },
+          { id: 4, name: "Delta" },
+          { id: 5, name: "Echo" },
+        ],
+      ],
+    ];
+    expect(planOf(rows, "post_bundles")).toMatchObject({
+      served: false,
+      reason: "unexplained-change",
+    });
+  });
 });

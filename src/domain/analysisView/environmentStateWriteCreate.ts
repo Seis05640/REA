@@ -509,13 +509,14 @@ const followsSequences = (
   draft: WriteDraft,
   created: Pick<StateEntity, "type" | "collection" | "fields"> & {
     readonly sent: JsonObject;
+    readonly observed: JsonObject;
   },
 ): boolean =>
   sequencesOf(draft, created.collection).every(({ rule, key }) => {
     if (rule.sent === true && Object.hasOwn(created.sent, rule.field))
-      return same(
-        ownMember(created.fields, rule.field),
-        created.sent[rule.field],
+      return (
+        !Object.hasOwn(created.observed, rule.field) ||
+        same(ownMember(created.observed, rule.field), created.sent[rule.field])
       );
     const scope = [
       ...context.state.ofType(created.type),

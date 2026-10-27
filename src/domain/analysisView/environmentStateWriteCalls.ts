@@ -105,6 +105,7 @@ const sameObserved = (left: ObservedValue, right: ObservedValue): boolean =>
 export interface UpdateCall {
   readonly shown: ReadonlyMap<string, ObservedValue>;
   readonly sent: ReadonlyMap<string, JsonValue>;
+  readonly sentMembers: ReadonlySet<string>;
   readonly kept: readonly string[];
 }
 
@@ -337,7 +338,7 @@ export const defaultsDisagree = (
     ({ member, value }) =>
       calls.earlier.some(
         (call) =>
-          !call.sent.has(member) &&
+          !call.sentMembers.has(member) &&
           call.shown.has(member) &&
           !same(call.shown.get(member), observedValue(value)),
       ) ||
@@ -376,8 +377,22 @@ export const rememberCall = (
     ]),
   );
   for (const field of unstamped) shown.delete(field);
-  const facts = { shown, sent: scalars(call.sent), kept };
-  retain(64 + jsonTextCodeUnits([...facts.shown, ...facts.sent, kept]) * 2);
+  const facts = {
+    shown,
+    sent: scalars(call.sent),
+    sentMembers: new Set(Object.keys(call.sent)),
+    kept,
+  };
+  retain(
+    64 +
+      jsonTextCodeUnits([
+        ...facts.shown,
+        ...facts.sent,
+        [...facts.sentMembers],
+        kept,
+      ]) *
+        2,
+  );
   draft.updates.push(facts);
   for (const field of steadyFields(draft.plan.rules, call.before, call.after))
     draft.steady.add(field);
