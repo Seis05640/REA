@@ -5,7 +5,10 @@ import {
   type TimedCaptureRow,
 } from "../../../tests/fixtures/analysisView.js";
 import {
+  CLEARED_THEN_OMITTED_KEPT_ROWS,
   DONE_CLOCK_ROWS,
+  DONE_ZONE_ROWS,
+  OMITTED_KEPT_THEN_CLEARED_ROWS,
   FEWER_MEMBERS_ROWS,
   NUMBERED_UNLESS_SENT_ROWS,
   NUMBERED_THEN_SENT_ROWS,
@@ -74,6 +77,29 @@ describe("writes whose calls send different members", () => {
       served: true,
     });
   });
+
+  it("serves no update whose clock the read after it spells in another zone, which serving cannot store", () => {
+    // The read spells the answer's instant at the second, but as +00:00: serving would keep the answer's spelling.
+    expect(planOf(DONE_ZONE_ROWS, "patch_tasks_by_id")).toMatchObject({
+      served: false,
+    });
+  });
+
+  it.each([
+    [
+      "answered without the owner its read shows kept, then cleared",
+      OMITTED_KEPT_THEN_CLEARED_ROWS,
+    ],
+    [
+      "cleared, then answered without the owner its read shows kept",
+      CLEARED_THEN_OMITTED_KEPT_ROWS,
+    ],
+  ])(
+    "withholds a PUT default an earlier or later read contradicts: %s",
+    (_order, rows) => {
+      expect(planOf(rows, "put_tags_by_id")).toMatchObject({ served: false });
+    },
+  );
 
   it("serves a PUT that clears a member it left out, as a default", () => {
     const plan = planOf(PUT_CLEARS_ROWS, "put_tags_by_id");

@@ -873,9 +873,13 @@ only once a call found what it sets already set. A write is served only
 with the query its first call sent, which serving applies to a call that
 leaves a parameter out and the catalog advertises as required. Every member every call sent is required, except by `PATCH` and
 `POST` updates and members a create sent empty. The state holds an update's
-clock as the first read of the entity after it spells the same instant, at a
-coarser precision too: replay as that read shows it, and serving in its
-spelling (`observation.read`), while answers keep the update's own.
+clock as the first read of the entity after it spells the same instant at a
+coarser precision in the same zone and separator: replay and serving store that
+spelling by one rule, serving from the read the plan keeps as
+`observation.read`, while answers keep the update's own; a create's clocks stay
+as answered. A `PUT` default must agree with what every call that left the
+member out stored, as its answer shows it or, where the answer leaves it out,
+the read after the call.
 
 A read on a line `query` answers is checked against the query evaluated over
 the replayed state. It covers the collection only when every parameter sorts or
