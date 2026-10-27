@@ -23,6 +23,20 @@ describe("served writes whose calls send different members", () => {
     });
   });
 
+  it("numbers past an order a call sent, even once that bundle is gone", () => {
+    const bundles = servedFrom(NUMBERED_UNLESS_SENT_ROWS);
+    bundles.answer("post_bundles", { body: { name: "Echo" } });
+    bundles.answer("post_bundles", { body: { name: "Foxtrot", order: 9 } });
+    bundles.store.removeAll(
+      bundles.store
+        .ofType("/api/bundles")
+        .filter((entity) => entity.fields["order"] === 9),
+    );
+    expect(
+      bundles.answer("post_bundles", { body: { name: "Golf" } }).body,
+    ).toMatchObject({ name: "Golf", order: 10 });
+  });
+
   it("clears a member a PUT leaves out, as the application did, and keeps one it sends", () => {
     const tags = servedFrom(PUT_CLEARS_ROWS);
     expect(

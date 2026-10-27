@@ -42,6 +42,7 @@ import {
   generatedIntegerDigits,
   seededInteger,
   seededLike,
+  sequenceNumber,
   spelledLike,
   startedSequence,
 } from "../../domain/analysisView/environmentStateWriteValues.js";
@@ -231,6 +232,12 @@ export const generator = (
 ): {
   readonly forTarget: (target: GeneratedTarget) => GenerateValue;
   readonly taken: Map<string, number>;
+  /** Count a number the call sent for a sequence, as replay does, so later generated ones follow it. */
+  readonly sentSequence: (
+    target: string,
+    rule: Extract<GeneratedRule, { rule: "sequence" }>,
+    value: JsonValue | undefined,
+  ) => void;
 } => {
   const { store } = serving;
   const write = store.pendingWrite();
@@ -240,6 +247,11 @@ export const generator = (
     taken.set(key, value);
     return value;
   };
+  const sequenceKey = (
+    rule: Extract<GeneratedRule, { rule: "sequence" }>,
+    target: string,
+  ) =>
+    `${request.tool.name} ${rule.field} ${rule.scope === "collection" ? target : ""}`;
   const ofType = store.ofType(request.plan.target ?? "");
   // A sequence never reuses a value the state started with, even after its entity was deleted.
   const started = store.startedWith(request.plan.target ?? "");
@@ -292,7 +304,7 @@ export const generator = (
           spelledLike(
             exemplar,
             sequence(
-              `${request.tool.name} ${rule.field} ${rule.scope === "collection" ? target.name : ""}`,
+              sequenceKey(rule, target.name),
               startedSequence(
                 nextHeld(
                   rule.scope === "collection"
@@ -362,7 +374,17 @@ export const generator = (
         );
     }
   };
-  return { forTarget: (target) => (rule) => generate(target, rule), taken };
+  return {
+    forTarget: (target) => (rule) => generate(target, rule),
+    taken,
+    sentSequence: (target, rule, value) => {
+      const number = sequenceNumber(value);
+      if (number === undefined) return;
+      const key = sequenceKey(rule, target);
+      // commitWrite keeps the larger of this and the values taken before.
+      taken.set(key, Math.max(taken.get(key) ?? number, number));
+    },
+  };
 };
 
 /** A write's answer on its recorded response's status and content type: a rendered body, none, or the recorded one. */
@@ -557,6 +579,17 @@ const answerCreate = (
     idField,
   );
   if (!fields.ok) return err(refused(tool, fields.error));
+  for (const rule of plan.rules)
+    if (
+      rule.rule === "sequence" &&
+      rule.sent === true &&
+      Object.hasOwn(call.body ?? {}, rule.field)
+    )
+      values.sentSequence(
+        collection,
+        rule,
+        ownMember(fields.value, rule.field),
+      );
   const field = unloadableMember(fields.value);
   if (field !== undefined) return err(unloadable(tool, `Field ${field}`));
   const id = scalarText(ownMember(fields.value, idField));

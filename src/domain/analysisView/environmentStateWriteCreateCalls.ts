@@ -56,7 +56,12 @@ const agreeing = (
   const alike = alikeRules(held, later, values.earlier.kept);
   if (alike !== undefined) return alike;
   if (held.rule === "made-object" && later.rule === "made-object")
-    return madeAlike(held, later, ownMember(values.exemplar, values.field));
+    return madeAlike(
+      held,
+      later,
+      ownMember(values.exemplar, values.field),
+      values.earlier,
+    );
   const spelled = ampersandSpelled(
     held,
     { rule: later, entity: values.laterEntity },
@@ -74,11 +79,12 @@ const agreeing = (
 
 type MadeObject = Extract<FieldRule, { rule: "made-object" }>;
 
-/** Two made-object rules as one: the same clocks, format and own members, and the earlier counts among the later's; a count only the later call shows starts at the exemplar's value, which no earlier object could show past. */
+/** Two made-object rules as one: the same clocks, format and own members, and the earlier counts among the later's; a count only the later call shows starts at the exemplar's value, which no earlier object could show past, and only while the exemplar is the one create accepted, as earlier creates held it still. */
 const madeAlike = (
   held: MadeObject,
   later: MadeObject,
   exemplar: JsonValue | undefined,
+  earlier: EarlierEvidence,
 ): MadeObject | undefined => {
   if (
     !same(held.clocks, later.clocks) ||
@@ -92,6 +98,9 @@ const madeAlike = (
   const counts: MadeObject["counts"] = [];
   for (const { member } of later.counts) {
     const kept = held.counts.find((count) => count.member === member);
+    // Accepted creates past the exemplar showed this member unchanged, which a count would have moved.
+    if (kept === undefined && (earlier.createCollections ?? []).length > 1)
+      return undefined;
     const start =
       kept?.start ??
       sequenceNumber(
