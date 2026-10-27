@@ -494,6 +494,39 @@ it("retains failed output cleanup for close to retry", async () => {
   await expect(lstat(f.output)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
+it("resolves returned cleanup failures when the exact output owner later closes", async () => {
+  const f = await fixture("process.exit(7);");
+  const rollback = SafeOutputTree.prototype.rollback;
+  const spy = vi
+    .spyOn(SafeOutputTree.prototype, "rollback")
+    .mockImplementation(function (this: SafeOutputTree) {
+      return this.outputRoot === f.output
+        ? Promise.reject(new Error("fixture retained output cleanup"))
+        : rollback.call(this);
+    });
+  try {
+    const failed = await f.provider.execute(request(f.path, f.output));
+    expect(failed).toMatchObject({
+      ok: false,
+      error: { cleanupIncomplete: true, cleanupResources: [f.output] },
+    });
+    if (failed.ok) throw new Error("Expected failed cleanup");
+    const retried = await f.provider.close().catch((cause: unknown) => cause);
+    expect(retried).toMatchObject({ cleanupIncomplete: true });
+    spy.mockRestore();
+    await f.provider.close();
+    expect(failed.error.cleanupIncomplete).toBe(false);
+    expect(failed.error.cleanupResources).toEqual([]);
+    expect(retried).toMatchObject({
+      cleanupIncomplete: false,
+      cleanupResources: [],
+    });
+  } finally {
+    spy.mockRestore();
+    await f.provider.close();
+  }
+});
+
 it.each(["retry succeeds", "retry fails"])(
   "retains successful engine diagnostics when workspace cleanup %s",
   async (outcome) => {

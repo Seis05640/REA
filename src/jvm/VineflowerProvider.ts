@@ -11,6 +11,8 @@ import {
 } from "../application/AnalysisProvider.js";
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
+import { AnalysisCleanupLease } from "../artifacts/AnalysisCleanupLease.js";
+import { retainOwnedCommandCleanup } from "../providers/OwnedCommandCleanup.js";
 import { SafeOutputTree } from "../artifacts/SafeOutputTree.js";
 import { SafeOutputTreeCreationFailure } from "../artifacts/SafeOutputTreeCreationFailure.js";
 import {
@@ -34,18 +36,17 @@ import {
   jvmResultSchemas,
   type JvmDecompilationInput,
   type JvmRequest,
+  type JvmOperation,
 } from "../domain/jvm/jvmAnalysis.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { ProviderCleanupError } from "../domain/providerCleanupError.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
   OwnedCommandFailure,
+  prepareOwnedCommand,
   runOwnedCommand,
 } from "../process/OwnedCommand.js";
-import type {
-  ProviderProcessSnapshot,
-  ProviderProcessSupervisor,
-} from "../process/ProviderProcess.js";
+import type { ProviderProcessSnapshot } from "../process/ProviderProcess.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import {
   parseVineflowerVersion,
@@ -79,14 +80,15 @@ const LIMITATIONS = [
 ] as const;
 
 type Resources = {
+  operation: JvmOperation;
   scope: ArtifactResourceScope;
+  lease?: AnalysisCleanupLease;
   observation?: AnalysisExecution;
   capturedOutput?: AnalysisCapturedOutput;
   root?: string;
   rootIdentity?: DirectoryIdentity;
   inputs?: SafeOutputTree;
   output?: SafeOutputTree;
-  process?: ProviderProcessSupervisor;
 };
 
 /** Serial, local-only adapter retaining all resources whose cleanup remains uncertain. */
@@ -184,18 +186,21 @@ export class VineflowerProvider implements JvmAnalysisPort {
   ): Promise<Result<AnalysisExecution, AnalysisError>> {
     const previous = await this.#retire();
     if (previous !== undefined) return err(previous);
-    const resources: Resources = { scope: new ArtifactResourceScope() };
+    const resources: Resources = {
+      operation: request.operation,
+      scope: new ArtifactResourceScope(),
+    };
     const timeoutMs =
       request.operation === "inspect_jvm_decompiler" ? 20_000 : TIMEOUT_MS;
-    const deadline = AbortSignal.timeout(timeoutMs);
-    const signal =
-      options?.signal === undefined
-        ? deadline
-        : AbortSignal.any([options.signal, deadline]);
+    let deadline: AbortSignal | undefined;
+    let signal = options?.signal;
     let result: AnalysisExecution | undefined;
     let failure: AnalysisError | undefined;
     try {
-      if (signal.aborted) throw new AnalysisCancelledError(request.operation);
+      if (signal?.aborted)
+        throw new AnalysisCancelledError(request.operation, {
+          cause: signal.reason,
+        });
       // Reserve the absent destination before starting any provider process.
       if (request.operation === "decompile_jvm_artifact") {
         try {
@@ -216,6 +221,13 @@ export class VineflowerProvider implements JvmAnalysisPort {
         this.#environment,
         request.operation,
       );
+      // Native helper compilation has its own deadline, outside the execution budget.
+      await prepareOwnedCommand(signal);
+      deadline = AbortSignal.timeout(timeoutMs);
+      signal =
+        options?.signal === undefined
+          ? deadline
+          : AbortSignal.any([options.signal, deadline]);
       const versionRun = await this.#run(
         command,
         ["--help"],
@@ -251,10 +263,24 @@ export class VineflowerProvider implements JvmAnalysisPort {
         await resources.output!.commit(signal);
       }
     } catch (cause: unknown) {
+      retainOwnedCommandCleanup(
+        cause,
+        {
+          retain: (owner, resource) =>
+            resources.scope.retain({
+              kind: "lease",
+              resource,
+              lease: AnalysisCleanupLease.forCloseOwner(owner, resource),
+            }),
+          run: (operation) => resources.scope.run(operation),
+        },
+        "vineflower",
+        request.operation,
+      );
       failure = normalizeFailure(cause, request.operation, signal);
       if (resources.capturedOutput !== undefined)
         failure.retainCapturedOutput(resources.capturedOutput);
-      if (deadline.aborted && !options?.signal?.aborted)
+      if (deadline?.aborted && !options?.signal?.aborted)
         failure = new AnalysisTimeoutError(request.operation, timeoutMs, {
           cause: failure,
           ...(failure.capturedOutput === undefined
@@ -273,7 +299,7 @@ export class VineflowerProvider implements JvmAnalysisPort {
               failure,
               cleanup,
               request.operation,
-            ),
+            ).bindCleanupDependencies([failure, cleanup]),
       );
     if (
       failure !== undefined &&
@@ -432,38 +458,28 @@ export class VineflowerProvider implements JvmAnalysisPort {
     );
   }
 
-  async #run(
+  #run(
     command: VineflowerCommand,
     arguments_: readonly string[],
     resources: Resources,
     operation: string,
     signal?: AbortSignal,
   ): Promise<ProviderProcessSnapshot> {
-    try {
-      return await runOwnedCommand(
-        {
-          command: command.command,
-          expectedCommand: null,
-          arguments: arguments_,
-          runId: randomUUID(),
-          hostEnvironment: { ...this.#environment },
-          ...(resources.root === undefined ? {} : { cwd: resources.root }),
-        },
-        {
-          timeoutMs:
-            operation === "inspect_jvm_decompiler" ? 20_000 : TIMEOUT_MS,
-          diagnosticBytes: DIAGNOSTIC_BYTES,
-        },
-        signal === undefined ? {} : { signal },
-      );
-    } catch (cause: unknown) {
-      if (
-        cause instanceof OwnedCommandFailure &&
-        cause.cleanupOwner !== undefined
-      )
-        resources.process = cause.cleanupOwner;
-      throw cause;
-    }
+    return runOwnedCommand(
+      {
+        command: command.command,
+        expectedCommand: null,
+        arguments: arguments_,
+        runId: randomUUID(),
+        hostEnvironment: { ...this.#environment },
+        ...(resources.root === undefined ? {} : { cwd: resources.root }),
+      },
+      {
+        timeoutMs: operation === "inspect_jvm_decompiler" ? 20_000 : TIMEOUT_MS,
+        diagnosticBytes: DIAGNOSTIC_BYTES,
+      },
+      signal === undefined ? {} : { signal },
+    );
   }
 
   async close(): Promise<void> {
@@ -474,11 +490,6 @@ export class VineflowerProvider implements JvmAnalysisPort {
   }
 
   async #cleanupWorkspace(resources: Resources): Promise<void> {
-    if (resources.process !== undefined) {
-      const stopped = await resources.process.stop();
-      if (stopped.status === "incomplete") throw new Error(stopped.reason);
-      delete resources.process;
-    }
     await resources.scope.close();
     if (resources.inputs !== undefined) {
       await resources.inputs.rollback();
@@ -497,34 +508,41 @@ export class VineflowerProvider implements JvmAnalysisPort {
   async #retire(): Promise<ProviderCleanupError | undefined> {
     const resources = this.#pending;
     if (resources === undefined) return undefined;
+    const lease = (resources.lease ??= new AnalysisCleanupLease(
+      async () => {
+        await this.#cleanupWorkspace(resources);
+        await resources.output?.rollback();
+      },
+      {
+        get cleanupResources() {
+          if (resources.lease?.released === true) return [];
+          return [
+            ...resources.scope.cleanupResources,
+            ...(resources.root === undefined ? [] : [resources.root]),
+            ...(resources.output === undefined
+              ? []
+              : [resources.output.outputRoot]),
+          ];
+        },
+      },
+    ));
     try {
-      await this.#cleanupWorkspace(resources);
-      await resources.output?.rollback();
+      await lease.release();
       this.#pending = undefined;
       return undefined;
     } catch (cause: unknown) {
       const failure = new ProviderCleanupError(
         "vineflower",
-        [
-          ...(resources.root === undefined ? [] : [resources.root]),
-          ...(resources.output === undefined
-            ? []
-            : [resources.output.outputRoot]),
-          ...(resources.process === undefined
-            ? []
-            : [
-                resources.process.launch.ownership?.runId ??
-                  "vineflower-worker",
-              ]),
-        ],
+        lease.cleanupResources ?? [],
         {
           reason: message(cause),
           ...(resources.output?.published && resources.observation !== undefined
             ? { published_result: resources.observation.result }
             : {}),
         },
-        { operation: "decompile_jvm_artifact", cause },
-      );
+        { operation: resources.operation, cause },
+      ).bindCleanupResourceOwner(lease);
+      lease.bindCleanupError(failure);
       return resources.capturedOutput === undefined
         ? failure
         : failure.retainCapturedOutput(resources.capturedOutput);

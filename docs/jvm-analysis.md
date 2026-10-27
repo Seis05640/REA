@@ -80,6 +80,8 @@ Equivalent MCP input:
 - Scala bytecode can yield Java representations of compiler-generated structures. Original Scala syntax, types, implicit resolution, and build configuration are not recovered by this workflow.
 - Recompilation and application behavior need their own requested, independently verified workflow.
 - Resource limits remain explicit: launcher inspection has a 20-second deadline, decompilation a 10-minute deadline, diagnostics a 4 MiB retention budget, and metadata a budget derived from the Node heap. These are execution limits, not license limits.
+- On macOS, native ownership-helper preparation uses its independent compiler deadline before execution budgets start. Caller cancellation still applies during preparation.
+- Failed helper, worker, workspace or output cleanup retains the exact owner for retry. Successful retry updates earlier typed cleanup errors and clears their pending-resource labels; already published source files remain caller-owned.
 
 ## Verification
 
