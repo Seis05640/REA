@@ -10,6 +10,14 @@ import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { createServer } from "../../../src/server/createServer.js";
+import { createTestBinarySession } from "../../fixtures/binarySession.js";
+import { parseMcpToolError } from "../../fixtures/mcpToolError.js";
+import { jsonObjectSchema } from "../../../src/domain/jsonValue.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
+import { ArtifactReaderFailure } from "../../../src/artifacts/ArtifactReader.js";
+import { OwnedFileHandle } from "../../../src/filesystem/OwnedFileHandle.js";
 import { SafeOutputTree } from "../../../src/artifacts/SafeOutputTree.js";
 import { writeOrderedZip } from "../../fixtures/artifactEntryOrder.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -608,8 +616,9 @@ it("preserves a published manifest when descriptor cleanup remains pending", asy
       ok: false,
       error: {
         cleanupIncomplete: true,
-        diagnostics: {
-          published_result: {
+        partialObservation: {
+          operation: "decompile_jvm_artifact",
+          normalized_result: {
             manifest: { path: join(f.output, "manifest.json") },
             sources: [{ relative_path: "sources/Probe.java" }],
           },
@@ -620,8 +629,9 @@ it("preserves a published manifest when descriptor cleanup remains pending", asy
       "class Probe {}",
     );
     await expect(f.provider.close()).rejects.toMatchObject({
-      diagnostics: {
-        published_result: {
+      partialObservation: {
+        operation: "decompile_jvm_artifact",
+        normalized_result: {
           manifest: { path: join(f.output, "manifest.json") },
         },
       },
@@ -632,3 +642,104 @@ it("preserves a published manifest when descriptor cleanup remains pending", asy
   }
   expect((await lstat(f.output)).isDirectory()).toBe(true);
 });
+
+it("preserves the artifact owner's opaque cancellation reason", async () => {
+  const f = await fixture();
+  const reason = { marker: "artifact cancellation" };
+  const write = vi.spyOn(SafeOutputTree.prototype, "write").mockRejectedValue(
+    new ArtifactReaderFailure("cancelled", "artifact interrupted", {
+      cancellation: { reason },
+    }),
+  );
+  try {
+    const result = await f.provider.execute(request(f.path, f.output));
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisCancelledError" },
+    });
+    if (result.ok) throw new Error("Expected artifact cancellation");
+    expect(result.error.cause).toBe(reason);
+  } finally {
+    write.mockRestore();
+    await f.provider.close();
+  }
+});
+
+it.each(["rollback", "commit-and-rollback"] as const)(
+  "retains published source Evidence in the MCP session when %s cleanup fails",
+  async (phase) => {
+    const f = await fixture(
+      "fs.writeFileSync('generated/Probe.java', 'class Probe {}');",
+    );
+    const rollback = SafeOutputTree.prototype.rollback;
+    const spy = vi
+      .spyOn(SafeOutputTree.prototype, "rollback")
+      .mockImplementation(function (this: SafeOutputTree) {
+        return phase === "rollback" &&
+          this.outputRoot === f.output &&
+          this.published
+          ? Promise.reject(new Error("published descriptor pending"))
+          : rollback.call(this);
+      });
+    let publishing: SafeOutputTree | undefined;
+    const commit = SafeOutputTree.prototype.commit;
+    const commitSpy = vi
+      .spyOn(SafeOutputTree.prototype, "commit")
+      .mockImplementation(function (this: SafeOutputTree, signal) {
+        if (this.outputRoot === f.output) publishing = this;
+        return commit.call(this, signal);
+      });
+    const close = OwnedFileHandle.prototype.close;
+    const closeSpy = vi
+      .spyOn(OwnedFileHandle.prototype, "close")
+      .mockImplementation(function (this: OwnedFileHandle) {
+        return phase === "commit-and-rollback" && publishing?.published
+          ? Promise.reject(new Error("published descriptor close failed"))
+          : close.call(this);
+      });
+    const session = createTestBinarySession(() => {
+      throw new Error("No native target expected");
+    });
+    const server = createServer(
+      { kind: "session", session },
+      { jvmAnalysis: f.provider },
+    );
+    const client = new Client({ name: "jvm-published-cleanup", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({
+        name: "decompile_jvm_artifact",
+        arguments: { path: f.path, output_directory: f.output },
+      });
+      const { error } = parseMcpToolError(response);
+      const reference = jsonObjectSchema.parse(
+        error.details?.partial_observation,
+      );
+      expect(reference.kind).toBe("retained-evidence");
+      if (typeof reference.evidence_id !== "string")
+        throw new Error("Missing retained Evidence identity");
+      const evidence = parseEvidence(
+        session.evidenceById(reference.evidence_id),
+      );
+      expect(error.code).toBe("cleanup_incomplete");
+      expect(evidence.operation).toBe("decompile_jvm_artifact");
+      expect(evidence.normalized_result).toMatchObject({
+        manifest: { path: join(f.output, "manifest.json") },
+        sources: [{ relative_path: "sources/Probe.java" }],
+      });
+      expect(evidence.evidence_id).toBe(reference.evidence_id);
+      expect(await readFile(join(f.output, "sources/Probe.java"), "utf8")).toBe(
+        "class Probe {}",
+      );
+    } finally {
+      spy.mockRestore();
+      closeSpy.mockRestore();
+      commitSpy.mockRestore();
+      await client.close();
+      await server.close();
+    }
+  },
+);

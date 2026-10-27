@@ -10,6 +10,10 @@ import {
   type ProviderAvailability,
 } from "../application/AnalysisProvider.js";
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
+import { artifactFileCancellationCause } from "../artifacts/ArtifactFileOperation.js";
+import { createAnalysisExecutionEvidence } from "../domain/analysisObservation.js";
+import type { Evidence } from "../domain/evidence.js";
+import { fixedAllowanceOptions } from "../domain/fixedAllowanceRemediation.js";
 import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { AnalysisCleanupLease } from "../artifacts/AnalysisCleanupLease.js";
 import { retainOwnedCommandCleanup } from "../providers/OwnedCommandCleanup.js";
@@ -83,7 +87,8 @@ type Resources = {
   operation: JvmOperation;
   scope: ArtifactResourceScope;
   lease?: AnalysisCleanupLease;
-  observation?: AnalysisExecution;
+  publishedEvidence?: Evidence;
+  commandTimeoutMs?: number;
   capturedOutput?: AnalysisCapturedOutput;
   root?: string;
   rootIdentity?: DirectoryIdentity;
@@ -277,7 +282,12 @@ export class VineflowerProvider implements JvmAnalysisPort {
         "vineflower",
         request.operation,
       );
-      failure = normalizeFailure(cause, request.operation, signal);
+      failure = normalizeFailure(
+        cause,
+        request.operation,
+        signal,
+        resources.commandTimeoutMs,
+      );
       if (resources.capturedOutput !== undefined)
         failure.retainCapturedOutput(resources.capturedOutput);
       if (deadline?.aborted && !options?.signal?.aborted)
@@ -289,9 +299,18 @@ export class VineflowerProvider implements JvmAnalysisPort {
         });
     }
     this.#pending = resources;
-    if (result !== undefined) resources.observation = result;
     const cleanup = await this.#retire();
-    if (cleanup !== undefined)
+    if (cleanup !== undefined) {
+      if (result !== undefined && resources.output?.published) {
+        resources.publishedEvidence = createAnalysisExecutionEvidence(
+          request.operation,
+          request.input,
+          result,
+          "derived",
+        );
+        cleanup.retainPartialObservation(resources.publishedEvidence);
+        failure?.retainPartialObservation(resources.publishedEvidence);
+      }
       return err(
         failure === undefined
           ? cleanup
@@ -301,6 +320,7 @@ export class VineflowerProvider implements JvmAnalysisPort {
               request.operation,
             ).bindCleanupDependencies([failure, cleanup]),
       );
+    }
     if (
       failure !== undefined &&
       !(resources.output?.published && result !== undefined)
@@ -465,6 +485,9 @@ export class VineflowerProvider implements JvmAnalysisPort {
     operation: string,
     signal?: AbortSignal,
   ): Promise<ProviderProcessSnapshot> {
+    const timeoutMs =
+      operation === "inspect_jvm_decompiler" ? 20_000 : TIMEOUT_MS;
+    resources.commandTimeoutMs = timeoutMs;
     return runOwnedCommand(
       {
         command: command.command,
@@ -475,7 +498,7 @@ export class VineflowerProvider implements JvmAnalysisPort {
         ...(resources.root === undefined ? {} : { cwd: resources.root }),
       },
       {
-        timeoutMs: operation === "inspect_jvm_decompiler" ? 20_000 : TIMEOUT_MS,
+        timeoutMs,
         diagnosticBytes: DIAGNOSTIC_BYTES,
       },
       signal === undefined ? {} : { signal },
@@ -536,11 +559,14 @@ export class VineflowerProvider implements JvmAnalysisPort {
         lease.cleanupResources ?? [],
         {
           reason: message(cause),
-          ...(resources.output?.published && resources.observation !== undefined
-            ? { published_result: resources.observation.result }
-            : {}),
         },
-        { operation: resources.operation, cause },
+        {
+          operation: resources.operation,
+          cause,
+          ...(resources.publishedEvidence === undefined
+            ? {}
+            : { partialObservation: resources.publishedEvidence }),
+        },
       ).bindCleanupResourceOwner(lease);
       lease.bindCleanupError(failure);
       return resources.capturedOutput === undefined
@@ -556,6 +582,7 @@ const normalizeFailure = (
   cause: unknown,
   operation: string,
   signal?: AbortSignal,
+  commandTimeoutMs?: number,
 ): AnalysisError => {
   if (cause instanceof AnalysisError) return cause;
   if (cause instanceof OwnedCommandFailure) {
@@ -567,20 +594,37 @@ const normalizeFailure = (
       ...(capturedOutput === undefined ? {} : { capturedOutput }),
     };
     if (cause.reason === "cancelled")
-      return new AnalysisCancelledError(operation, options);
-    if (cause.reason === "timeout")
-      return new AnalysisTimeoutError(
-        operation,
-        operation === "inspect_jvm_decompiler" ? 20_000 : TIMEOUT_MS,
-        options,
-      );
+      return new AnalysisCancelledError(operation, {
+        ...options,
+        cause:
+          cause.cancellation === undefined
+            ? signal?.aborted
+              ? signal.reason
+              : cause
+            : cause.cancellation.reason,
+      });
+    if (cause.reason === "timeout") {
+      const timeoutMs =
+        commandTimeoutMs ??
+        (operation === "inspect_jvm_decompiler" ? 20_000 : TIMEOUT_MS);
+      return new AnalysisTimeoutError(operation, timeoutMs, {
+        ...options,
+        remediationAction: `The Vineflower ${timeoutMs === 20_000 ? "version probe" : "decompilation command"} reached its fixed ${String(timeoutMs)} ms deadline (no runtime override). Check the selected launcher and Java installation; for decompilation, select a smaller complete artifact when that preserves the requested analysis.`,
+      });
+    }
     if (cause.reason === "output-limit")
       return new AnalysisResourceConstraintError(
         operation,
         "memory",
         "Vineflower diagnostics exceeded the retained output budget",
         { diagnostic_bytes: DIAGNOSTIC_BYTES },
-        options,
+        {
+          ...options,
+          ...fixedAllowanceOptions(
+            `Vineflower diagnostic capture allowance of ${String(DIAGNOSTIC_BYTES)} bytes (no runtime override)`,
+            "capture",
+          ),
+        },
       );
     return new AnalysisOutputError(
       operation,
@@ -588,11 +632,12 @@ const normalizeFailure = (
       options,
     );
   }
-  if (
-    signal?.aborted ||
-    (cause instanceof ArtifactReaderFailure && cause.reason === "cancelled")
-  )
-    return new AnalysisCancelledError(operation, { cause });
+  if (cause instanceof ArtifactReaderFailure && cause.reason === "cancelled")
+    return new AnalysisCancelledError(operation, {
+      cause: artifactFileCancellationCause(cause),
+    });
+  if (signal?.aborted)
+    return new AnalysisCancelledError(operation, { cause: signal.reason });
   return new ProviderAdapterError("vineflower", operation, {
     cause,
     userMessage: message(cause),

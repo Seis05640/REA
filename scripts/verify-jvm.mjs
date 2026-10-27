@@ -15,6 +15,10 @@ import addFormats from "ajv-formats";
 import { expandToolAvailability } from "../dist/contracts/toolOutputSchemaPrimitives.js";
 import { toolContract } from "../dist/contracts/toolContracts.js";
 import { evidenceBundleSchema } from "../dist/domain/evidenceBundle.js";
+import {
+  withVerifierCleanup,
+  closeVerifierResources,
+} from "./lib/verifier-cleanup.mjs";
 import { buildJvmFixture } from "./verify/jvm/fixtures.mjs";
 import {
   mcpTextValue,
@@ -49,7 +53,7 @@ transport.stderr?.on("data", () => undefined);
 const validator = new Ajv({ strict: false });
 addFormats(validator);
 let report;
-try {
+await withVerifierCleanup(async () => {
   const inspected = await runCli("inspect_jvm_decompiler", [
     "inspect-jvm-decompiler",
   ]);
@@ -305,17 +309,15 @@ try {
     compilation_status: "not_attempted",
     runtime_equivalence: "unknown",
   };
-} finally {
-  try {
-    try {
-      await client.close();
-    } finally {
-      await transport.close();
-    }
-  } finally {
+}, [
+  async () => {
+    await closeVerifierResources([
+      () => client.close(),
+      () => transport.close(),
+    ]);
     await rm(directory, { recursive: true, force: true });
-  }
-}
+  },
+]);
 process.stdout.write(
   `${JSON.stringify({ ...report, owned_cleanup_completed: true })}\n`,
 );

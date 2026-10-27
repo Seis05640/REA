@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { projectAnalysisError } from "../../src/domain/analysisErrorProjection.js";
 import * as commands from "../../src/process/OwnedCommand.js";
 import { DarwinProcessOwnershipInspectionError } from "../../src/process/DarwinProcessRunTokenReader.js";
 import { ProviderCleanupError } from "../../src/domain/providerCleanupError.js";
@@ -132,3 +133,84 @@ it.each(["preparation", "command", "wrapped"] as const)(
     }
   },
 );
+
+it.each([{ marker: "caller abort" }, undefined])(
+  "preserves an owned command's opaque cancellation reason: %j",
+  async (reason) => {
+    const f = await fixture();
+    vi.spyOn(commands, "prepareOwnedCommand").mockResolvedValue();
+    vi.spyOn(commands, "runOwnedCommand").mockRejectedValue(
+      new commands.OwnedCommandFailure(
+        "cancelled",
+        "caller cancelled",
+        null,
+        null,
+        { cancellation: { reason } },
+      ),
+    );
+    try {
+      const result = await f.provider.execute({
+        operation: "inspect_jvm_decompiler",
+        input: {},
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisCancelledError" },
+      });
+      if (result.ok) throw new Error("Expected cancellation");
+      expect(result.error.cause).toBe(reason);
+    } finally {
+      await f.provider.close();
+    }
+  },
+);
+
+it("reports the version command's actual timeout during decompilation", async () => {
+  const f = await fixture();
+  vi.spyOn(commands, "prepareOwnedCommand").mockResolvedValue();
+  vi.spyOn(commands, "runOwnedCommand").mockRejectedValue(
+    new commands.OwnedCommandFailure("timeout", "version probe timed out"),
+  );
+  try {
+    const result = await f.provider.execute({
+      operation: "decompile_jvm_artifact",
+      input: {
+        path: f.path,
+        output_directory: join(f.root, "sources"),
+        classpath: [],
+      },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        _tag: "AnalysisTimeoutError",
+        operation: "decompile_jvm_artifact",
+        timeoutMs: 20_000,
+      },
+    });
+  } finally {
+    await f.provider.close();
+  }
+});
+
+it("names the fixed diagnostic allowance without suggesting worker memory", async () => {
+  const f = await fixture();
+  vi.spyOn(commands, "prepareOwnedCommand").mockResolvedValue();
+  vi.spyOn(commands, "runOwnedCommand").mockRejectedValue(
+    new commands.OwnedCommandFailure("output-limit", "diagnostics exceeded"),
+  );
+  try {
+    const result = await f.provider.execute({
+      operation: "inspect_jvm_decompiler",
+      input: {},
+    });
+    if (result.ok) throw new Error("Expected diagnostic refusal");
+    const projected = projectAnalysisError(result.error);
+    expect(projected.remediation.action).toContain("4194304");
+    expect(projected.remediation.action).toContain("no runtime override");
+    expect(projected.remediation.action).toContain("do not raise");
+    expect(projected.retryable).toBe(false);
+  } finally {
+    await f.provider.close();
+  }
+});

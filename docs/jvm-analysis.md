@@ -82,6 +82,10 @@ Equivalent MCP input:
 - Resource limits remain explicit: launcher inspection has a 20-second deadline, decompilation a 10-minute deadline, diagnostics a 4 MiB retention budget, and metadata a budget derived from the Node heap. These are execution limits, not license limits.
 - On macOS, native ownership-helper preparation uses its independent compiler deadline before execution budgets start. Caller cancellation still applies during preparation.
 - Failed helper, worker, workspace or output cleanup retains the exact owner for retry. Successful retry updates earlier typed cleanup errors and clears their pending-resource labels; already published source files remain caller-owned.
+- Published sources retain complete Evidence even when final cleanup fails. MCP errors reference that record in the session bundle; source hashes and manifest identity remain available.
+- A version probe has a fixed 20-second command deadline, including within decompilation. The outer decompilation workflow has a 10-minute execution deadline after ownership preparation; neither has a runtime override.
+- The 4 MiB diagnostic capture allowance is fixed without a runtime override. Worker memory does not raise it. Reduce diagnostics through the caller-owned launcher or select a smaller complete input when that preserves the requested analysis.
+- Metadata uses 1/32 of the V8 heap captured at REA startup. To raise it, start REA with a larger Node.js heap using `NODE_OPTIONS=--max-old-space-size=<MiB>` and restart; the refusal reports the effective byte allowance.
 
 ## Verification
 

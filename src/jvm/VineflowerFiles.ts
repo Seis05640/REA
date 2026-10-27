@@ -65,6 +65,10 @@ export class JvmMetadataBudget {
         "memory",
         "JVM inventory exceeds its heap-derived metadata budget",
         { metadata_bytes: JVM_METADATA_BYTES },
+        {
+          retryable: false,
+          remediationAction: `The JVM metadata allowance is ${String(JVM_METADATA_BYTES)} bytes, derived as 1/32 of the V8 heap at REA startup. Set NODE_OPTIONS=--max-old-space-size=<MiB> to a larger Node.js heap and restart REA to raise it, or select a smaller complete artifact. Worker memory settings do not change this already captured allowance; do not truncate required input bytes.`,
+        },
       );
   }
 }
