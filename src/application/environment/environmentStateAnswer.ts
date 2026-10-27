@@ -320,8 +320,6 @@ const deletedEntity = (
   type: string,
   call: ItemCall,
 ): StateEntity | undefined => {
-  const flag = softDeleteFlag(serving, type);
-  if (flag === undefined) return undefined;
   const { store } = serving;
   const entity = callNamed(
     store.knownCollectionsOf(type),
