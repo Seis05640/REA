@@ -296,6 +296,7 @@ export class EnvironmentStateWriteSimulation {
         updates: [],
         sequences: new Map(),
         starts: new Map(),
+        createCollections: [],
         steady: new Set(),
         unstamped: new Set(),
         kept: new Set(),

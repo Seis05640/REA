@@ -29,6 +29,29 @@ const ruleFor = (plan: ReturnType<typeof createOf>, field: string): unknown =>
   plan.rules.find((rule) => rule.field === field);
 
 describe("values an application counts and makes with each created entity", () => {
+  it("does not adopt a sequence that contradicts an earlier accepted create", () => {
+    const a = { id: 1, title: "A", index: 1 };
+    const b = { id: 2, title: "B", index: 2 };
+    const c = { id: 3, title: "C", index: 15 };
+    const d = { id: 4, title: "D", index: 15 };
+    const e = { id: 5, title: "E", index: 16 };
+    const rows: readonly TimedCaptureRow[] = [
+      ["GET", "/api/tasks", [a, b]],
+      ["GET", "/api/tasks/1", a],
+      ["POST", "/api/tasks", c, 201, { title: "C" }],
+      ["GET", "/api/tasks/3", c],
+      ["GET", "/api/tasks", [a, b, c]],
+      ["POST", "/api/tasks", d, 201, { title: "D" }],
+      ["GET", "/api/tasks/4", d],
+      ["GET", "/api/tasks", [a, b, c, d]],
+      ["POST", "/api/tasks", e, 201, { title: "E" }],
+      ["GET", "/api/tasks/5", e],
+      ["GET", "/api/tasks", [a, b, c, d, e]],
+    ];
+    const plan = createOf(rows);
+    expect(plan).toMatchObject({ served: false });
+    expect(ruleFor(plan, "index")).toBeUndefined();
+  });
   it("learns a counter from where the first create stood, a template around it and the object made with each task", () => {
     const plan = createOf(COUNTED_TASK_ROWS);
     expect(plan).toMatchObject({
