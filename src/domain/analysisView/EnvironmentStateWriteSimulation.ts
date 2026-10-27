@@ -109,6 +109,24 @@ const keptInOrder = (
     );
   });
 
+/** The sorts by a field every listed item holds as a string or number that the items follow. */
+const listedSorts = (
+  items: readonly JsonObject[],
+): Extract<InsertRule, { rule: "sorted" }>[] =>
+  [...new Set(items.flatMap((item) => Object.keys(item)))]
+    .filter((field) =>
+      items.every((item) =>
+        ["string", "number"].includes(typeof ownMember(item, field)),
+      ),
+    )
+    .flatMap((field) =>
+      (["ascending", "descending"] as const).flatMap((direction) =>
+        orderedBy(items, field, direction)
+          ? [{ rule: "sorted", field, direction } as const]
+          : [],
+      ),
+    );
+
 /** Whether a list read's query sets a parameter the view's query model reads as a sort or its direction. */
 const sortedByQuery = (
   view: Extract<StateView, { shape: "list" }>,
@@ -182,6 +200,8 @@ export class EnvironmentStateWriteSimulation {
   readonly #refutedSorts = new Map<string, Set<string>>();
   /** Creates whose insert rule a passing list check relied on, so it is no longer changed. */
   readonly #placed = new Set<string>();
+  /** Placed creates a read other than a whole listing in collection order placed, whose insert stays as it is. */
+  readonly #settledInserts = new Set<string>();
   /** The order a read showed a type's collections sorted in after an update, when no create of it showed one. */
   readonly #learnedSorts = new Map<string, InsertRule>();
   /** Entities writes no plan models made, taken when an item read first shows them. */
@@ -796,7 +816,9 @@ export class EnvironmentStateWriteSimulation {
       this.#drafts.get(name)!.confirmed.push(record.ordinal);
       if (showsPlacement(view, outcome, this.#inserted, name)) {
         this.#placed.add(name);
-        if (view.shape === "list") this.#narrowInserts(view, record, name);
+        // Only whole listings in collection order narrow the inserts a later list may still choose among.
+        if (view.shape !== "list" || !this.#narrowInserts(view, record, name))
+          this.#settledInserts.add(name);
       }
     }
     return shown.unseen;
@@ -936,23 +958,34 @@ export class EnvironmentStateWriteSimulation {
     });
   }
 
-  /** A whole-collection read in collection order that placed a create leaves it only the sorted inserts whose order the read follows; one its query sorts shows the query's order instead. */
+  /** A whole-collection read in collection order that placed a create leaves it only the sorted inserts whose order the read follows, adding those by a field its items all hold, and says whether it did; one its query sorts shows the query's order instead. */
   #narrowInserts(
     view: Extract<StateView, { shape: "list" }>,
     record: StateRecordFacts,
     name: string,
-  ): void {
-    if (sortedByQuery(view, record)) return;
+  ): boolean {
+    if (sortedByQuery(view, record)) return false;
     const draft = this.#drafts.get(name)!;
-    const kept = this.#wholeListing(view, record, (items) =>
-      draft.candidates.filter(
+    const kept = this.#wholeListing(view, record, (items) => {
+      const followed = draft.candidates.filter(
         (candidate) =>
           candidate.rule !== "sorted" ||
           same(candidate, draft.plan.insert) ||
           orderedBy(items, candidate.field, candidate.direction),
-      ),
-    );
-    if (kept !== undefined) draft.candidates = kept;
+      );
+      // A list shown in the order of the field that names its items says less than one in a field people read.
+      const idField = this.#types.get(view.type)?.id_field;
+      const learned = listedSorts(items)
+        .filter((rule) => !followed.some((candidate) => same(candidate, rule)))
+        .sort(
+          (left, right) =>
+            Number(left.field === idField) - Number(right.field === idField),
+        );
+      return [...followed, ...learned];
+    });
+    if (kept === undefined) return false;
+    draft.candidates = kept;
+    return true;
   }
 
   /**
@@ -1109,9 +1142,18 @@ export class EnvironmentStateWriteSimulation {
     if (creates.size !== 1) return undefined;
     const [name] = creates;
     const draft = this.#drafts.get(name!)!;
-    // An item read confirms the entity, not where a list places it.
-    if (!exercised.has(name!) || this.#placed.has(name!)) return undefined;
-    for (const candidate of draft.candidates.slice(1)) {
+    // An item read confirms the entity, not where a list places it; a read that placed it otherwise than a whole
+    // listing did settles where it goes.
+    if (!exercised.has(name!) || this.#settledInserts.has(name!))
+      return undefined;
+    // A create whole listings placed may still take a sort they followed: one placed last fits it before the next shows the order.
+    const options = this.#placed.has(name!)
+      ? draft.candidates.filter(
+          (candidate) =>
+            candidate.rule === "sorted" && !same(candidate, draft.plan.insert),
+        )
+      : draft.candidates.slice(1);
+    for (const candidate of options) {
       this.#state.reinsert(view.type, line.collection, inserted, candidate);
       const outcome = this.#check(view, record);
       if (outcome?.pass === true) {
@@ -1119,6 +1161,13 @@ export class EnvironmentStateWriteSimulation {
         return outcome;
       }
     }
+    if (draft.plan.insert !== null)
+      this.#state.reinsert(
+        view.type,
+        line.collection,
+        inserted,
+        draft.plan.insert,
+      );
     return undefined;
   }
 }

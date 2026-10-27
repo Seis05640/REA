@@ -24,7 +24,8 @@ export const unsentChange = (rule: FieldRule): boolean =>
   rule.rule === "composed" ||
   rule.rule === "stamp" ||
   rule.rule === "derived" ||
-  rule.rule === "set";
+  rule.rule === "set" ||
+  rule.rule === "toggle";
 
 /** Whether serving gives a rule's field a new value on every call, so no call may have kept it. */
 export const regenerates = (rule: FieldRule): boolean =>
@@ -55,6 +56,32 @@ export const disagreesWithCall = (
         !same(ownMember(call.written, rule.field), call.after[rule.field])) ||
       (regenerates(rule) && call.kept.includes(rule.field)),
   );
+
+/** A plan's set rules a later call flipped back, and that call's own, as toggles; `steady` names fields a call found already set, which an action sets rather than toggles. */
+export const toggledRules = (
+  rules: readonly FieldRule[],
+  later: readonly FieldRule[],
+  before: JsonObject,
+  steady: ReadonlySet<string>,
+): { readonly rules: FieldRule[]; readonly later: FieldRule[] } => {
+  const flipped = new Set(
+    later.flatMap((rule) => {
+      const was = ownMember(before, rule.field);
+      const held = rules.find((other) => other.field === rule.field);
+      return rule.rule === "set" &&
+        typeof was === "boolean" &&
+        rule.value === !was &&
+        !steady.has(rule.field) &&
+        ((held?.rule === "set" && held.value === was) ||
+          held?.rule === "toggle")
+        ? [rule.field]
+        : [];
+    }),
+  );
+  const toggle = (rule: FieldRule): FieldRule =>
+    flipped.has(rule.field) ? { field: rule.field, rule: "toggle" } : rule;
+  return { rules: rules.map(toggle), later: later.map(toggle) };
+};
 
 /** The fields a call found already at the value a set rule gives them: the action sets them rather than toggling them. */
 export const steadyFields = (
@@ -192,8 +219,8 @@ export const contradictsEarlierCalls = (
           integerOf(observation.value) !== undefined
         );
       if (rule.rule === "set") return !sameObserved(observation, expected!);
-      // Serving stamps a clock on every call, so a field an earlier call kept contradicts it.
-      if (rule.rule === "clock") return true;
+      // Serving stamps a clock and flips a toggle on every call, so a field an earlier call kept contradicts it.
+      if (rule.rule === "clock" || rule.rule === "toggle") return true;
       if (rule.rule === "stamp") return !sameObserved(observation, expected!);
       if (rule.rule === "derived")
         return sent.has(rule.member) && !sameObserved(observation, expected!);

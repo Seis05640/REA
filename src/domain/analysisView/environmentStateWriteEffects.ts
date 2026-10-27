@@ -44,6 +44,7 @@ import {
   conflictsWithPlan,
   refinedBody,
   reconciledUpdateRule,
+  toggledRules,
 } from "./environmentStateWriteCalls.js";
 import {
   laterObservation,
@@ -647,7 +648,7 @@ export const updateEntity = (
   }
   const unknown = context.unknown(type, collection, id);
   const call = { ...callOf(step, body), body };
-  const { explained, rules } = fitUpdateClocks(
+  const fitted = fitUpdateClocks(
     draft,
     after.object,
     explainUpdate({
@@ -668,6 +669,14 @@ export const updateEntity = (
       references: draft.plan.rules.filter((rule) => rule.rule === "reference"),
     }),
   );
+  // An action a later call shows flipping back what an earlier one set toggles it.
+  const { rules, later } = toggledRules(
+    fitted.rules,
+    fitted.explained.rules,
+    entity.fields,
+    draft.steady,
+  );
+  const explained = { ...fitted.explained, rules: later };
   for (const member of keptOrders(call.body, after.object))
     draft.kept.add(member);
   if (explained.unexplained.length > 0 && !unknown) {

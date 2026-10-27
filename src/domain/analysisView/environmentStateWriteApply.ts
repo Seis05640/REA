@@ -223,12 +223,20 @@ const ruledValue = (
   observed: JsonObject,
   call: WriteCall,
   generate: GenerateValue,
-  referenced?: ReferencedEntity,
+  references: {
+    readonly referenced: ReferencedEntity | undefined;
+    readonly blank: WriteBody["blank"];
+  },
 ): Applied<JsonValue | undefined> => {
   const body = call.body ?? {};
   switch (rule.rule) {
     case "reference":
-      return referencedValue(rule, body, referenced);
+      return referencedValue(
+        rule,
+        body,
+        references.referenced,
+        references.blank,
+      );
     case "sequence":
       return rule.sent === true && Object.hasOwn(body, rule.field)
         ? ok(body[rule.field]!)
@@ -373,7 +381,10 @@ export const createdFields = (
     (plan.body.defaults ?? []).map(({ member, value }) => [member, value]),
   );
   for (const rule of plan.rules) {
-    const value = ruledValue(rule, observed, call, generate, referenced);
+    const value = ruledValue(rule, observed, call, generate, {
+      referenced,
+      blank: plan.body.blank,
+    });
     if (!value.ok) return value;
     if (value.value !== undefined)
       setOwnMember(written, rule.field, value.value);
@@ -468,8 +479,13 @@ export const updatedFields = (
   for (const rule of plan.rules) {
     const stated = statedValue(rule, sent);
     if (stated !== undefined) setOwnMember(written, rule.field, stated);
-    else if (rule.rule === "reference" && Object.hasOwn(sent, rule.member)) {
-      const value = referencedValue(rule, sent, referenced);
+    else if (rule.rule === "toggle") {
+      const was = ownMember(before, rule.field);
+      if (typeof was !== "boolean")
+        return err(`The entity holds no flag ${rule.field} to flip.`);
+      setOwnMember(written, rule.field, !was);
+    } else if (rule.rule === "reference" && Object.hasOwn(sent, rule.member)) {
+      const value = referencedValue(rule, sent, referenced, plan.body.blank);
       if (!value.ok) return value;
       if (value.value !== undefined)
         setOwnMember(written, rule.field, value.value);
