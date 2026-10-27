@@ -244,6 +244,49 @@ it.each([0x06000001, 0x11000001])(
 );
 
 it.each([
+  ["CIL", false, "Two-byte CIL opcode"],
+  ["exception section", true, "section"],
+] as const)(
+  "preserves malformed %s alongside an unsupported local signature",
+  (_name, hasSection, issue) => {
+    const body = Buffer.alloc(hasSection ? 20 : 14);
+    body.writeUInt16LE(hasSection ? 0x300b : 0x3003, 0);
+    body.writeUInt16LE(8, 2);
+    body.writeUInt32LE(2, 4);
+    body.writeUInt32LE(0x11000001, 8);
+    body[12] = 0x00; // A usable nop precedes the malformed instruction.
+    body[13] = hasSection ? 0x2a : 0xfe; // ret or truncated two-byte opcode.
+    if (hasSection) {
+      body[16] = 2; // Unsupported extra-section kind.
+      body[17] = 4;
+    }
+    const bytes = buildManagedPeFixture({
+      ilBody: body,
+      standaloneSignatures: [Buffer.from([0x07, 0x01, 0xff])],
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.methods[0]?.body).toMatchObject({
+      status: "malformed",
+      normalized_il_sha256: null,
+      anchors: expect.arrayContaining([
+        expect.objectContaining({ opcode: "nop" }),
+      ]),
+      issue: expect.stringContaining(issue),
+    });
+    expect(result.methods[0]?.body.issue).toContain("unsupported element type");
+    expect(result.coverage.state).toBe("partial");
+    expect(result.coverage.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "unsupported-signature" }),
+      ]),
+    );
+  },
+);
+
+it.each([
   ["valid LocalVarSig", Buffer.from([0x07, 0x01, 0x08]), "present"],
   [
     "valid pinned LocalVarSig",
@@ -2863,3 +2906,74 @@ describe("managed member method paging", () => {
     ).toThrow(RangeError);
   });
 });
+
+it("retains names of unselected fields without admitting their malformed signatures", () => {
+  const bytes = buildManagedNestedTypeFixture({ topLevelTypes: true });
+  const pe = readManagedPeLayout(bytes);
+  if (pe.cli === null) throw new Error("Expected CLI fixture");
+  const { rva, size } = pe.cli.metadata;
+  const layout = readManagedMetadataLayout(
+    bytes,
+    pe.rvaToOffset(rva, size, "cli.metadata"),
+    size,
+  );
+  const field = metadataRowOffset(layout, 4, 1);
+  bytes.writeUIntLE(
+    layout.blobIndexSize === 2 ? 0xffff : 0xffffffff,
+    field + 2 + layout.stringIndexSize,
+    layout.blobIndexSize,
+  );
+  const method = metadataRowOffset(layout, 6, 2);
+  const methodRva = bytes.readUInt32LE(method);
+  const body = tokenBody([[ldsfld, 0x04000001]]);
+  bytes.set(body, pe.rvaToOffset(methodRva, body.length, "fixture CIL"));
+  const result = inspectManagedMembersBytes(
+    bytes,
+    managedPeFixtureTarget(bytes),
+    {
+      typeNames: ["OtherInner"],
+    },
+  );
+  expect(result.fields).toMatchObject([{ token: "0x04000002", name: "F" }]);
+  expect(result.methods).toMatchObject([{ token: "0x06000002", name: "M" }]);
+  expect(result.field_accesses).toMatchObject([
+    {
+      field_token: "0x04000001",
+      field_name: "F",
+      field_declaring_type: "Inner",
+    },
+  ]);
+  expect(
+    result.coverage.issues.filter(
+      ({ scope }) =>
+        scope === "metadata.#Blob" || scope === "Field:0x04000001.signature",
+    ),
+  ).toEqual([]);
+});
+
+it.each([false, true])(
+  "keeps ordinary TypeSpec operands distinct from GENERICINST heads (generic=%s)",
+  (generic) => {
+    const bytes = buildManagedPeFixture({
+      typeSpecSignatures: [Buffer.from([0x15, 0x12, 0x05, 0x01, 0x0e])],
+      fieldSignature: Buffer.from(
+        generic ? [0x06, 0x15, 0x12, 0x06, 0x01, 0x0e] : [0x06, 0x12, 0x06],
+      ),
+    });
+    const result = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.fields[0]?.signature).toMatchObject({
+      kind: "field",
+      parse_status: generic ? "malformed" : "decoded",
+      field_type: generic ? null : "class:6",
+    });
+    const issues = result.coverage.issues.filter(
+      ({ scope }) => scope === "Field:0x04000001.signature",
+    );
+    expect(issues).toEqual(
+      generic ? [expect.objectContaining({ code: "invalid-row" })] : [],
+    );
+  },
+);

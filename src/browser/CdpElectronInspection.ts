@@ -1,3 +1,4 @@
+import type { CdpContextFrameClaim } from "./CdpScriptContextFacts.js";
 import type { AsarHeaderAdmission } from "../config/asarHeaderAdmission.js";
 import { digestCanonicalValue } from "../domain/canonicalDigest.js";
 import type { ProgressReporter } from "../application/ProgressReporter.js";
@@ -61,7 +62,7 @@ interface ElectronInspectionState {
   readonly completeness: CdpCaptureCompleteness;
   readonly scripts: ElectronScriptDraft[];
   readonly scriptMetadataRetention: ElectronScriptMetadataRetention;
-  readonly executionContextFrames: Map<string, string>;
+  readonly executionContextFrames: Map<string, CdpContextFrameClaim>;
   readonly frameGenerations: Map<string, number>;
   readonly frameParents: Map<string, string | null>;
   readonly frameDocuments: Map<string, ElectronFrameDocument>;
@@ -113,7 +114,7 @@ export const inspectCdpElectronPage = async (
       "Known script frame identity is retained independently from frame_scope authorization. Unknown frame scope is attach-limited; scripts from known excluded document generations are omitted before source reads.",
       ...(context.target.attached === null
         ? [
-            "CDP discovery omitted the target attachment state; attached is reported as unknown.",
+            "CDP discovery could not establish the target's debugger attachment state.",
           ]
         : []),
     ],
