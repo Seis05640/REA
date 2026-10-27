@@ -64,6 +64,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   readonly #authority: WindowsNativeAuthority;
   readonly #settled: Promise<void>;
   #settle: (() => void) | undefined;
+  #pollRetries = 0;
   #closed = false;
   #failure: string | undefined;
   #timer: NodeJS.Timeout | undefined;
@@ -354,12 +355,23 @@ export class WindowsOwnedProcess extends EventEmitter {
         state.activeProcesses === 0
       ) {
         this.#release();
-      } else this.#schedule(idle ? 25 : 0);
+      } else {
+        this.#pollRetries = 0;
+        this.#schedule(idle ? 25 : 0);
+      }
     } catch (cause: unknown) {
       const failure = cause instanceof Error ? cause : new Error(String(cause));
       this.#failure = failure.message;
       if (this.listenerCount("error") > 0) this.emit("error", failure);
-      if (!this.#closed) this.#schedule();
+      if (!this.#closed) {
+        if (this.#pollRetries < 5) {
+          this.#pollRetries += 1;
+          this.#schedule(50);
+        } else {
+          this.#releasePending = true;
+          this.#settle?.();
+        }
+      }
     }
   }
 
