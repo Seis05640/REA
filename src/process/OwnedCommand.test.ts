@@ -437,3 +437,37 @@ it.each([undefined, "pipe"] as const)(
     expect(ended).not.toHaveBeenCalled();
   },
 );
+
+it("reports a deadline that elapses during final cleanup as a timeout", async () => {
+  const fixture = ownedInput(null);
+  const observeCompleted = vi.fn();
+  fixture.cleanup.mockImplementation(async () => {
+    // Cleanup starts before the 100 ms deadline and finishes after it.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return { cleaned: true, signaled: false };
+  });
+  const pending = runOwnedCommand(
+    spawn,
+    { timeoutMs: 100, diagnosticBytes: 1024, observeCompleted },
+    {
+      launcher: async () => {
+        setImmediate(() => {
+          fixture.child.stdout.write("completed output");
+          fixture.child.complete();
+        });
+        return {
+          process: fixture.child,
+          ownership: fixture.ownership,
+          cleanup: fixture.cleanup,
+        };
+      },
+    },
+  );
+  await expect(pending).rejects.toMatchObject({
+    reason: "timeout",
+    cleanupFailure: null,
+    snapshot: { exitCode: 0, stdout: { text: "completed output" } },
+  });
+  expect(observeCompleted).toHaveBeenCalledOnce();
+  expect(fixture.cleanup).toHaveBeenCalledOnce();
+});
