@@ -32,6 +32,7 @@ export interface EarlierEvidence {
   readonly clockOf: (field: string) => JsonValue | undefined;
   /** The integer the exemplar showed in an unruled field above every value its type held, where a sequence may start. */
   readonly startOf?: (field: string) => number | undefined;
+  readonly createCollections?: readonly string[];
   /** How the plan's accepted calls and the type's held entities spelled `&` in each field's slug; absent where none showed one. */
   readonly ampersands?: ReadonlyMap<string, AmpersandSpelling>;
 }
@@ -269,6 +270,13 @@ const spellsExemplar = (
   }
   if (rule.rule !== "sequence") return undefined;
   const start = calls.earlier.startOf?.(field);
+  const collections = calls.earlier.createCollections ?? [];
+  if (
+    (rule.scope === "type" && collections.length > 1) ||
+    (rule.scope === "collection" &&
+      new Set(collections).size !== collections.length)
+  )
+    return undefined;
   return start !== undefined && sequenceNumber(value) === start
     ? { ...rule, start }
     : undefined;

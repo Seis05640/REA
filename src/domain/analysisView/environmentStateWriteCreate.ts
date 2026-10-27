@@ -311,6 +311,7 @@ const earlierOf = (draft: WriteDraft) => ({
   kept: draft.kept,
   clockOf: (field: string) => clockEvidence(draft, field),
   startOf: (field: string) => draft.starts.get(field),
+  createCollections: draft.createCollections,
   ampersands: draft.ampersands,
 });
 
@@ -968,6 +969,8 @@ export const applyCreate = (
     draft.plan.rules,
   );
   const inserted = insertCreated(context, draft, entity(stored, id));
+  context.io.retain(collection.length * 2 + 16);
+  draft.createCollections.push(collection);
   return {
     kind: "applied",
     targets: [inserted, collectionTarget(type, collection)],
