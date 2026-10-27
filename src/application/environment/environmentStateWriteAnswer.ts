@@ -1,6 +1,7 @@
 import {
   createdFields,
   documentBodyProblem,
+  laterItemFields,
   optionalFields,
   renewUuids,
   updatedEntity,
@@ -39,6 +40,7 @@ import {
   spelledLike,
 } from "../../domain/analysisView/environmentStateWriteValues.js";
 import {
+  at,
   ownMember,
   collectionMatch,
   decodedSegment,
@@ -65,6 +67,8 @@ import {
   namedEntity,
   recordedJson,
   refused,
+  deleteAnswerFields,
+  softDeleteFlag,
   stateAnswer,
   type StateAnswer,
   type StateProvenance,
@@ -390,6 +394,11 @@ export const writeAnswer = (
             ),
           },
           optionalFields(plan),
+          laterItemFields(
+            serving.store.state.views.values(),
+            serving.store.state.entities,
+            plan.target,
+          ),
         );
   if (!body.ok) return err(refused(tool, body.error));
   return stateAnswer(serving, { exchange, exact }, body.value ?? null, state);
@@ -658,10 +667,27 @@ const answerDelete = (
   const target = targetEntity(serving, request);
   if (!target.ok) return target.error;
   const entity = target.value;
+  const { response } = request.plan;
+  const exchange =
+    response === null
+      ? undefined
+      : serving.source.exchanges.get(response.ordinal);
+  const recorded = exchange === undefined ? undefined : recordedJson(exchange);
+  // A soft-deleting application answers with the entity's deleted flag as its recorded answer showed it.
   const answer = writeAnswer(
     serving,
     request,
-    { fields: entity.fields, id: entity.id },
+    {
+      fields: deleteAnswerFields(
+        serving,
+        entity.type,
+        entity.fields,
+        recorded === undefined
+          ? undefined
+          : at(recorded, response!.pointer ?? ""),
+      ),
+      id: entity.id,
+    },
     {
       source: "state",
       view: "delete",
@@ -671,7 +697,11 @@ const answerDelete = (
     },
   );
   if (answer.ok) {
-    serving.store.remove(entity);
+    // An application that soft-deletes still answers the entity by id, so its last fields are kept for that read.
+    serving.store.remove(
+      entity,
+      softDeleteFlag(serving, entity.type) !== undefined,
+    );
     serving.store.commitWrite(new Map());
   }
   return answer;

@@ -7,6 +7,7 @@ import {
   isStateWrite,
   listItems,
   listsAll,
+  markedDeleted,
   normalizedPath,
   ownMember,
   same,
@@ -24,7 +25,10 @@ import { FailedReadBlame } from "./environmentStateWriteBlame.js";
 import { addressedWrite } from "./environmentStateWriteAddress.js";
 import { withoutMembers } from "./environmentStateResponseMembers.js";
 import { linkedTarget } from "./environmentStateWriteLinks.js";
-import { updatedEntity } from "./environmentStateWriteApply.js";
+import {
+  laterItemFields,
+  updatedEntity,
+} from "./environmentStateWriteApply.js";
 import { projectedRead } from "./environmentStateWriteObserve.js";
 import { OmittedFields } from "./environmentStateWriteOmitted.js";
 import { SortedArrays } from "./environmentStateWriteSorted.js";
@@ -397,6 +401,8 @@ export class EnvironmentStateWriteSimulation {
         this.#input.documents.find((document) => document.tool === tool),
       startedWith: (type) =>
         this.#input.entities.filter((entity) => entity.type === type),
+      laterFields: (type) =>
+        laterItemFields(this.#input.views.values(), this.#input.entities, type),
       pending: (target) =>
         [...(this.#touched.get(target)?.keys() ?? [])].some(
           (name) => name !== writer,
@@ -522,7 +528,16 @@ export class EnvironmentStateWriteSimulation {
     const writes = this.#touched.get(target) ?? new Map();
     this.#taint.known(entity.type, entity.collection, entity.id);
     this.#touched.delete(target);
-    if (isAbsence(record.status)) {
+    if (
+      isAbsence(record.status) ||
+      this.#input.io.withBody(record.ordinal, (body) =>
+        markedDeleted(
+          body === undefined || body === null
+            ? undefined
+            : at(body, view.pointer),
+        ),
+      )
+    ) {
       this.#removeEntity(entity);
       return;
     }
@@ -850,7 +865,7 @@ export class EnvironmentStateWriteSimulation {
     const object = this.#input.io.withBody(record.ordinal, (body) =>
       body === undefined || body === null ? undefined : at(body, view.pointer),
     );
-    if (isObject(object))
+    if (isObject(object) && !markedDeleted(object))
       this.#state.put(updatedEntity(entity, { ...entity.fields, ...object }));
     else this.#removeEntity(entity);
   }

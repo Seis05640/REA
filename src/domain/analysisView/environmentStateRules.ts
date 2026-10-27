@@ -155,6 +155,8 @@ export type StateItemView = EntityViewPlan &
   ReplayedReads & {
     readonly shape: "item";
     readonly envelope_ordinal: number;
+    /** The member its reads set `true` on an entity the application soft-deleted and still answers by id. */
+    readonly deleted_flag?: (typeof DELETED_FLAGS)[number] | undefined;
   };
 
 /** A query parameter that asks for some fields only (`fields`, `fields[...]`, `select`, `$select`). */
@@ -194,6 +196,21 @@ export type StateListView = EntityViewPlan &
     /** The query the view's other lines follow, when one explains any of them. */
     readonly query?: ListQuery | undefined;
   };
+
+/** Members an application sets `true` on an entity it has soft-deleted but still answers for by id. */
+export const DELETED_FLAGS = ["deleted", "isDeleted", "is_deleted"] as const;
+
+/** The member an item read's object sets `true` to mark the entity soft-deleted, if it does. */
+export const deletedFlag = (
+  object: JsonValue | undefined,
+): (typeof DELETED_FLAGS)[number] | undefined =>
+  isObject(object)
+    ? DELETED_FLAGS.find((name) => ownMember(object, name) === true)
+    : undefined;
+
+/** Whether an item read's object is one the application has soft-deleted, which says the entity is gone. */
+export const markedDeleted = (object: JsonValue | undefined): boolean =>
+  deletedFlag(object) !== undefined;
 
 /** An envelope member listing an identity field of each listed entity, as Paperless's `all` lists ids. */
 export interface ListedIds {

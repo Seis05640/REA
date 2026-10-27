@@ -65,6 +65,10 @@ export interface StatePlan {
   readonly projected?: readonly number[];
   /** Item lines first recorded after the initial reads whose identity they show, decided against the lines left once variants are dropped. */
   readonly late?: readonly LateLine[];
+  /** The members later plain item reads show of the entity they name. */
+  readonly laterFields?: readonly string[];
+  /** The member the tool's reads set `true` on an entity the application soft-deleted. */
+  readonly deletedFlag?: StateItemView["deleted_flag"];
   /** The query keys that pick calls of the replayed reads out. */
   readonly projectedKeys?: readonly ReplayKey[];
 }
@@ -95,6 +99,8 @@ export interface StateGateContext {
     id: string,
   ) => StateEntity | undefined;
   readonly inCollection: (type: string, collection: string) => StateEntity[];
+  /** Every field an initial entity of the type holds, from any view. */
+  readonly heldFields?: (type: string) => ReadonlySet<string>;
   readonly volatileOf: (type: string) => ReadonlySet<string>;
   readonly idField: (type: string) => string;
   /** By path, the top-level members each response there mints; views of other paths keep them. */
@@ -119,6 +125,13 @@ class FieldUnion {
       this.#required === undefined
         ? keys
         : new Set([...this.#required].filter((key) => keys.has(key)));
+  }
+
+  /** Add a field some object showed without changing which fields every object carries. */
+  note(key: string): void {
+    if (this.#seen.has(key)) return;
+    this.#seen.add(key);
+    this.fields.push(key);
   }
 
   get required(): string[] {
@@ -195,6 +208,11 @@ export const checkItemPlan = (
       const object = body === undefined ? undefined : at(body, plan.pointer);
       if (isObject(object)) union.add(object);
     });
+  // A field only later reads show, which no initial entity holds, is the view's too.
+  const held = context.heldFields?.(plan.type);
+  if (held !== undefined)
+    for (const member of plan.laterFields ?? [])
+      if (!held.has(member)) union.note(member);
   context.retain(union.bytes);
   const view = { tool: plan.tool.name, fields: union.fields };
   const envelope: { skeleton?: string; members?: string[] } = {};
@@ -217,6 +235,9 @@ export const checkItemPlan = (
     fields: union.fields,
     required_fields: union.required,
     envelope_ordinal: plan.latest[0]!.ordinal,
+    ...(plan.deletedFlag === undefined
+      ? {}
+      : { deleted_flag: plan.deletedFlag }),
     ...declaredMembers(envelope.members, context.retain),
     checked_record_ordinals: plan.latest.map((record) => record.ordinal),
     ...replayedReads(plan),
