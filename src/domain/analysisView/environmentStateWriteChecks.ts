@@ -5,10 +5,10 @@ import {
   ownMember,
   at,
   decodedSegment,
+  deletedFlag,
   isObject,
   listItems,
   listsAll,
-  markedDeleted,
   missingRequiredFields,
   pathSegmentMatches,
   renderStateEntity,
@@ -57,7 +57,7 @@ export class SimulatedState {
   readonly #entities = new Map<string, StateEntity>();
   readonly #collections = new Map<string, string[]>();
   readonly #documents = new Map<string, JsonValue>();
-  readonly #removed: RemovedTarget[] = [];
+  readonly #removed: StateEntity[] = [];
   readonly #served = new ServedOrder();
   /** Each held id's targets, of any type. */
   readonly #named = new Map<string, Set<string>>();
@@ -265,11 +265,20 @@ export class SimulatedState {
         target.id === entity.id,
     );
     if (index >= 0) this.#removed.splice(index, 1);
-    this.#removed.push({
-      type: entity.type,
-      collection: entity.collection,
-      id: entity.id,
-    });
+    this.#removed.push(entity);
+  }
+
+  deleted(
+    type: string,
+    collection: string,
+    id: string,
+  ): StateEntity | undefined {
+    return this.#removed.find(
+      (entity) =>
+        entity.type === type &&
+        entity.collection === collection &&
+        entity.id === id,
+    );
   }
 
   /** Removed targets of this type the state does not hold again. */
@@ -497,9 +506,20 @@ export const checkItemRead = (
     return check.body === undefined || entity === undefined
       ? undefined
       : { pass: false, targets, unheld: [] };
-  // An entity the application answers for as soft-deleted is one serving no longer holds.
-  if (markedDeleted(object))
-    return { pass: entity === undefined, targets, unheld: [] };
+  // Serving keeps a removed entity's fields and changes only the soft-delete flag.
+  const flag = deletedFlag(object);
+  if (flag !== undefined) {
+    const removed = state.deleted(view.type, collection, id);
+    if (entity !== undefined) return { pass: false, targets, unheld: [] };
+    if (removed === undefined) return { pass: true, targets, unheld: [] };
+    const deleted = { ...removed, fields: { ...removed.fields, [flag]: true } };
+    const shown = renderStateEntity(deleted, view, check.volatile, object);
+    return {
+      pass: same(replaceAt(check.base, view.pointer, shown), check.body),
+      targets,
+      unheld: [],
+    };
+  }
   if (entity === undefined) return { pass: false, targets, unheld: targets };
   // Serving refuses an entity lacking a field every recording carried, so no read can confirm one.
   if (missingRequiredFields(entity, view, check.volatile).length > 0)

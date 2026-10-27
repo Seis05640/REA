@@ -32,6 +32,22 @@ describe("deletes the application answers for afterwards", () => {
     });
   });
 
+  it("withholds a soft delete when its read changes another field", () => {
+    const rows: readonly TimedCaptureRow[] = SOFT_DELETED_ROWS.map((row) =>
+      row[0] === "GET" &&
+      row[1] === "/api/contacts/2" &&
+      typeof row[2] === "object" &&
+      row[2] !== null &&
+      !Array.isArray(row[2]) &&
+      row[2]["deleted"] === true
+        ? [row[0], row[1], { ...row[2], name: "Changed by deletion" }]
+        : row,
+    );
+    expect(planOf(rows, "delete_contacts_by_id")).toMatchObject({
+      served: false,
+    });
+  });
+
   it("learns on the item view the flag later reads set on a soft-deleted contact", () => {
     const item = (rows: readonly TimedCaptureRow[]) =>
       viewOf(rows).views.find((view) => view.tool === "get_contacts_by_id");
