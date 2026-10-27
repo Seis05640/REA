@@ -26,6 +26,56 @@ const names = (body: JsonValue | undefined): JsonValue[] => {
 };
 
 describe("served writes modelled on later reads", () => {
+  it("keeps an initially deleted item readable without treating it as live", () => {
+    const deleted = { id: 4, name: "Gone", deleted: true };
+    const rows = [
+      ...SOFT_DELETED_ROWS.slice(0, 4),
+      ["GET", "/api/contacts/4", deleted] as const,
+      ...SOFT_DELETED_ROWS.slice(4),
+    ];
+    const contacts = servedFrom(rows);
+    expect(contacts.answer("get_contacts_by_id", { id: "4" }).body).toEqual(
+      deleted,
+    );
+    expect(
+      contacts.store.entity("/api/contacts", "/api/contacts", "4"),
+    ).toBeUndefined();
+    expect(names(contacts.answer("get_contacts").body)).not.toContain("Gone");
+    expect(contacts.call("delete_contacts_by_id", { id: "4" }).ok).toBe(false);
+    const snapshot = contacts.store.snapshot();
+    expect(contacts.store.replace(snapshot).ok).toBe(true);
+    expect(contacts.answer("get_contacts_by_id", { id: "4" }).body).toEqual(
+      deleted,
+    );
+    const held = snapshot.rea_state.entities.find(
+      (entity) => entity.id === "4",
+    )!;
+    expect(
+      contacts.store.insert(
+        { ...held, fields: { ...held.fields, deleted: false } },
+        0,
+      ).ok,
+    ).toBe(true);
+    expect(
+      contacts.store
+        .snapshot()
+        .rea_state.entities.filter((entity) => entity.id === "4"),
+    ).toHaveLength(1);
+    expect(contacts.store.byteLength()).toBe(
+      Buffer.byteLength(JSON.stringify(contacts.store.snapshot())),
+    );
+    contacts.store.reset();
+    expect(
+      contacts.store.entity("/api/contacts", "/api/contacts", "4"),
+    ).toBeUndefined();
+    expect(contacts.answer("get_contacts_by_id", { id: "4" }).body).toEqual(
+      deleted,
+    );
+    const noWrites = servedFrom(rows.slice(0, 5));
+    expect(noWrites.answer("get_contacts_by_id", { id: "4" }).body).toEqual(
+      deleted,
+    );
+  });
   it("removes a soft-deleted contact from the served state", () => {
     const contacts = servedFrom(SOFT_DELETED_ROWS);
     contacts.answer("delete_contacts_by_id", { id: "1" });
