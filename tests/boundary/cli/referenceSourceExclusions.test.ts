@@ -229,8 +229,8 @@ describe.skipIf(process.platform === "win32")(
           {
             path: "project.tmp",
             entry_kind: "file",
-            reason: "project-ignored",
-            pattern: "project.tmp",
+            reason: "caller-excluded",
+            pattern: "*.tmp",
           },
           {
             path: "skip-me",
