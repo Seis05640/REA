@@ -88,13 +88,19 @@ configuration. Restart your agent afterward.
 Setup supports Claude Code, Codex, Cursor, Gemini CLI, Grok Build and
 [other agents](docs/installation.md#supported-agents). See
 [installation and setup](docs/installation.md) for provider configuration and
-manual MCP registration.
+manual MCP registration and Claude Code/Codex plugin installation.
 
 MCP uses compact input schemas by default to reduce context overhead. Set
 `REA_MCP_INPUT_SCHEMA_PROFILE=full` in your MCP registration when you need the
 complete advertised field guidance and nested validation details. Both profiles
 keep the full tool set and canonical server validation. See
 "Compact input schema profile" in the MCP contracts guide.
+
+Complete output schemas are advertised by default. If your client caps the
+complete `tools/list` frame, set `REA_MCP_OUTPUT_SCHEMA_PROFILE=compact` to
+bound each advertised output schema, or `off` to omit output schemas entirely.
+Both settings keep canonical server-side validation and complete structured
+results. See "Output schemas" in the MCP contracts guide.
 
 ### Ask your agent
 

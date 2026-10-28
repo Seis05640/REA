@@ -81,7 +81,7 @@ import {
 } from "../artifacts/AnalysisCleanupLease.js";
 import { bindRegularFileCleanup } from "./RegularFileRead.js";
 import { CURRENT_ENTRYPOINT_PATH } from "../process/CurrentEntrypointPath.js";
-import { analysisProviderSelectorSchema } from "../contracts/providerSelection.js";
+import { analysisProviderSelectorSchema } from "../domain/providerSelection.js";
 
 /** Resolve the executable and arguments used in a managed MCP registration. */
 export const setupRegistrationCommand = (
@@ -196,6 +196,7 @@ export const systemSetupHost = (
     materializeRegistrationRunnerCache(
       registration.registrationCommand,
       environment,
+      resources,
     );
   const cleanup = new SetupCleanupOwner([
     macCleanup,
@@ -230,11 +231,10 @@ export const systemSetupHost = (
       const diagnosis = await runDoctor(undefined, doctorHost, scope);
       const providerEnvironment: SetupProviderEnvironment = {
         ...providerRegistrationEnvironment(diagnosis.providerInspections ?? []),
-        ...doctorHost.providerRegistrationEnvironment?.(),
-        ...explicitSetupRegistrationEnvironment(environment),
         ...(diagnosis.hopperPath === undefined
           ? {}
           : { HOPPER_LAUNCHER_PATH: diagnosis.hopperPath }),
+        ...explicitSetupRegistrationEnvironment(environment),
       };
       const requestedProvider = analysisProviderSelectorSchema.safeParse(
         environment.REA_ANALYSIS_PROVIDER,
