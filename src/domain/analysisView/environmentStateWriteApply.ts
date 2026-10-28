@@ -341,12 +341,17 @@ const copiedShapes = (
     }),
   );
 
-/** A create's call with the members it left out that recorded calls sent empty, as the earliest sent them; one a call that left it out showed a default for keeps that default. */
-const withBlanks = (body: WriteBody, call: WriteCall): WriteCall => {
+/** A create's call with the members it left out that recorded calls sent empty, as the earliest sent them; one a call that left it out showed a default for keeps that default, and one `unheld` names stays left out. */
+const withBlanks = (
+  body: WriteBody,
+  call: WriteCall,
+  unheld: ReadonlySet<string>,
+): WriteCall => {
   const given = call.body ?? {};
   const left = (body.blank ?? []).filter(
     ({ member }, index, blank) =>
       !Object.hasOwn(given, member) &&
+      !unheld.has(member) &&
       !(body.defaults ?? []).some((entry) => entry.member === member) &&
       blank.findIndex((entry) => entry.member === member) === index,
   );
@@ -371,7 +376,15 @@ export const createdFields = (
   idField?: string,
 ): Applied<JsonObject> => {
   if (plan.body === null) return err("The tool has no modelled body.");
-  const call = withBlanks(plan.body, sentCall);
+  // A reference the observed entity lacks is one a create left out and stored nothing for, as a call leaving it out does.
+  const unheld = new Set(
+    plan.rules.flatMap((rule) =>
+      rule.rule === "reference" && !Object.hasOwn(observed, rule.field)
+        ? [rule.member]
+        : [],
+    ),
+  );
+  const call = withBlanks(plan.body, sentCall, unheld);
   const problem = bodyProblem(plan.body, call, {
     entity: { ...copiedShapes(plan.rules, observed), ...observed },
   });

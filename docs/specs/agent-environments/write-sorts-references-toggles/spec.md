@@ -26,7 +26,8 @@ write plans. A short diagnosis of the largest clusters found three gaps REA coul
   `many`. A create that sent the member as `null` or `[]` and stored the field so agrees with one that named entities,
   whichever create first showed the reference;
   serving stores the entities a call names, or the empty value as that create did. A `null` id stays refused where
-  no recorded create sent one.
+  no recorded create sent one, and a call leaving the member out stores no field where the observed create showed
+  none.
 - **Hidden bodies.** A scenario request whose body Playwright did not expose and that names no `Content-Type` sent no
   body.
 - **Toggles.** An item action a later call shows flipping back a boolean an earlier call set, when no call found it

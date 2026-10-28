@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ADDED_EMPTY_REFERENCE_ROWS,
   BOOKMARK_TOGGLE_ROWS,
   ITEM_LOCATIONS,
   ITEM_REFERENCES_ROWS,
@@ -44,6 +45,24 @@ describe("served item writes", () => {
         body: { name: "Spare fuse", parentId: null, tagIds: [] },
       }).body,
     ).toMatchObject({ name: "Spare fuse", parent: null, tags: [] });
+  });
+
+  it("answers a create leaving out a parent the first create left out with none, and one sending null with null", () => {
+    const items = servedFrom(ADDED_EMPTY_REFERENCE_ROWS);
+    const left = items.answer("post_items", { body: { name: "Spare fuse" } })
+      .body as Record<string, unknown>;
+    expect(left).toMatchObject({ name: "Spare fuse" });
+    expect(Object.hasOwn(left, "parent")).toBe(false);
+    expect(
+      items.answer("post_items", {
+        body: { name: "Spare bulb", parentId: null },
+      }).body,
+    ).toMatchObject({ name: "Spare bulb", parent: null });
+    expect(
+      items.answer("post_items", {
+        body: { name: "Spare cord", parentId: ITEM_LOCATIONS[0]!["id"]! },
+      }).body,
+    ).toMatchObject({ name: "Spare cord", parent: ITEM_LOCATIONS[0] });
   });
 
   it("refuses a create naming no shelf when every recorded create named one", () => {

@@ -792,7 +792,8 @@ several collections teaches no reference. Each later create widens its plan
 when, explained on its own, it agrees with it: both calls show the same fields
 but for a reference whose member a call without it did not send, or sent as
 `null` or `[]` and stored so (one an earlier create added stays, and a call may
-send the member empty as that create did), every field both rule they rule alike (an echo one showed
+send the member empty as that create did; one leaving it out stores no such field
+when the create the plan observes showed none), every field both rule they rule alike (an echo one showed
 sorted stays sorted, unless a call stored its strings out of order as sent),
 and a field neither rules holds one value, unless the later call's rule for it
 spells the earlier calls' value too: a `composed` or `template` string, or a

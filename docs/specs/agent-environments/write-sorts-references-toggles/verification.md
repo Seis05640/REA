@@ -24,7 +24,7 @@ bundles after a delete (7) and Miniflux's bookmark toggle (5).
 
 - `npm run -s check:fast`, `format:check`, `knip`, `scan:todos`, `docs:check`, `verify:test-discovery`,
   `mcp-catalog:check` and `jscpd`: passed.
-- `npx vitest run --project domain --project services`: 11,883 passed, 6 skipped, merged with `174a0ff2`. An earlier run of the suite failed a
+- `npx vitest run --project domain --project services`: 11,884 passed, 6 skipped, merged with `174a0ff2`. An earlier run of the suite failed a
   `SetupRegistrationPrewarm` runner test whose child process outran its 5-second timeout; alone it passes on this
   branch and on #7539 (3.0 to 4.7 seconds).
 - `npm run -s test:focused --` the environment build, export and serve CLI boundaries, the analysis-view CLI and MCP
@@ -72,6 +72,11 @@ Greptile's review of `4e777d28` raised five findings. Two were in this branch's 
 Both tests fail on `4e777d28` and on #7539 at `174a0ff2`; the census is unchanged. The other three were in #7332's and
 #7539's code: `308aebf0` (#7332), already here, covers the made-object count, and #7539's `174a0ff2`, merged here,
 fixes the update default and the read clock spelling.
+
+Greptile's review of `f7c1bfe9` raised one more, fixed: once a later create sent a reference's member as `null`, a
+served create leaving the member out stored `null`, though the create the plan observes left it out and stored no such
+field. Serving now leaves the field out there, and still stores `null` for a call that sends it; the serving test fails
+on `f7c1bfe9`. The census is unchanged.
 
 ## Not verified
 
