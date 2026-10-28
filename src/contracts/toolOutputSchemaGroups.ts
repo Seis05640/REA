@@ -501,7 +501,7 @@ export const managedWorkflowOutputSchemas = {
   project_managed_application_graph: evidenceResultOf(
     managedApplicationGraphResultSchema,
   ),
-} as const satisfies Readonly<Record<string, z.ZodObject>>;
+};
 
 /** Exact structured-content schemas for target lifecycle operations. */
 export const sessionOutputSchemas = {

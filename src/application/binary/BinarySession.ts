@@ -478,11 +478,11 @@ export class BinarySession
     return this.#open(
       (admitted) =>
         resolveSessionOpen({
-          resources: this.fileResources,
           router: this.#providerRouter,
           current: this.#active,
           path,
           options: admitted,
+          resources: this.fileResources,
           stagedSnapshotMatches: (target, profile) =>
             this.matchesSnapshot(target, profile),
         }),

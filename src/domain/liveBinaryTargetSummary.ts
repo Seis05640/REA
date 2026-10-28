@@ -20,6 +20,17 @@ const headerArchitectureSchema = architectureSchema.exclude([
   "arm64_32",
 ]);
 const identity = { path: z.string(), sha256: digestSchema };
+const debugCompanionSchema = z
+  .object({
+    source_path: z.string(),
+    uuid: z.string(),
+    member_sha256: z.string(),
+  })
+  .nullable()
+  .describe(
+    "Caller-selected dSYM companion admitted for this Mach-O target; null when none matched.",
+  );
+
 const executable = { ...identity, kind: z.literal("executable") };
 
 /** Live target classifications; historical Evidence and snapshots retain their own admission. */
@@ -36,6 +47,7 @@ export const liveBinaryTargetSummaryVariants = [
     ...executable,
     format: z.literal("mach-o"),
     architecture: z.enum([...headerArchitectureSchema.options, "arm64_32"]),
+    debug_companion: debugCompanionSchema,
   }),
   z.object({
     ...executable,

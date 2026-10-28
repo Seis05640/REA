@@ -13,4 +13,16 @@ export const binaryTargetSummary = (target: BinaryTarget) =>
     ...(target.format === "raw-binary" || target.format === "gamecube-dol"
       ? { entry_point: target.entryPoint }
       : {}),
+    ...(target.format !== "mach-o" && target.format !== "mach-o-universal"
+      ? {}
+      : {
+          debug_companion:
+            target.debugCompanion === undefined
+              ? null
+              : {
+                  source_path: target.debugCompanion.sourcePath,
+                  uuid: target.debugCompanion.uuid,
+                  member_sha256: target.debugCompanion.memberSha256,
+                },
+        }),
   });
