@@ -150,6 +150,7 @@ export const runDirectAnalysis = async (
         ? {}
         : { entryPoint: options.entryPoint }),
       ...(options.dsymPath === undefined ? {} : { dsymPath: options.dsymPath }),
+      ...(options.dsymPath === undefined ? {} : { dsymPath: options.dsymPath }),
       ...(options.providerId === undefined
         ? {}
         : { providerId: options.providerId }),
@@ -385,6 +386,7 @@ const runAnalysis = async (
       ...(options.entryPoint === undefined
         ? {}
         : { entryPoint: options.entryPoint }),
+      ...(options.dsymPath === undefined ? {} : { dsymPath: options.dsymPath }),
     });
     if (!prepared.ok) return err(prepared.error);
     const { snapshot } = prepared.value;
@@ -405,70 +407,9 @@ const runAnalysis = async (
         ...(options.dsymPath === undefined
           ? {}
           : { dsymPath: options.dsymPath }),
-      });
-      if (!prepared.ok) return cliError(prepared.error);
-      const { snapshot } = prepared.value;
-      let resolvedTarget: ResolvedSessionOpen | undefined;
-      if (snapshot !== undefined && prepared.value.target !== undefined) {
-        const preview = await session.previewTarget(prepared.value.target, {
-          signal,
-          snapshot,
-          ...(options.formatHint === undefined
-            ? {}
-            : { formatHint: options.formatHint }),
-          ...(options.architecture === undefined
-            ? {}
-            : { architecture: options.architecture }),
-          ...(options.entryPoint === undefined
-            ? {}
-            : { entryPoint: options.entryPoint }),
-          ...(options.providerId === undefined
-            ? {}
-            : { providerId: options.providerId }),
-        });
-        if (!preview.ok) return cliError(preview.error);
-        resolvedTarget = preview.value;
-        const route = preview.value.route;
-        const bindingProfile = route.profile ?? undefined;
-        const evidenceProfile = analysisProfileForRoute(route, tool);
-        // A parsed Windows path does not prove Ghidra's native snapshot owner
-        // admitted the selected source; CLI replay must wait for that client.
-        if (
-          bindingProfile !== undefined &&
-          evidenceProfile !== undefined &&
-          !requiresNativeSourceAdmissionBeforeReplay(
-            route.binding?.identity.id,
-          ) &&
-          allowsSnapshotReplay(route, tool)
-        ) {
-          const cached = snapshotEvidenceForQuery(snapshot, {
-            target: preview.value.target,
-            bindingProfile,
-            operation: tool,
-            parameters: arguments_,
-            provider: isWorkflowEvidenceTool(tool)
-              ? REA_WORKFLOW_PROVIDER
-              : providerIdentityForRoute(route, tool),
-            evidenceProfile,
-          });
-          if (cached !== undefined) return cached;
-        }
-      }
-      const openOptions = {
-        signal,
-        ...(options.formatHint === undefined
-          ? {}
-          : { formatHint: options.formatHint }),
-        ...(options.architecture === undefined
-          ? {}
-          : { architecture: options.architecture }),
-        ...(options.entryPoint === undefined
-          ? {}
-          : { entryPoint: options.entryPoint }),
         ...(options.dsymPath === undefined
           ? {}
           : { dsymPath: options.dsymPath }),
-        ...(snapshot === undefined ? {} : { snapshot }),
         ...(options.providerId === undefined
           ? {}
           : { providerId: options.providerId }),
@@ -516,6 +457,7 @@ const runAnalysis = async (
       ...(options.entryPoint === undefined
         ? {}
         : { entryPoint: options.entryPoint }),
+      ...(options.dsymPath === undefined ? {} : { dsymPath: options.dsymPath }),
       ...(snapshot === undefined ? {} : { snapshot }),
       ...(options.providerId === undefined
         ? {}
@@ -801,6 +743,7 @@ const prepareSnapshot = async (options: {
     ...(options.entryPoint === undefined
       ? {}
       : { entryPoint: options.entryPoint }),
+    ...(options.dsymPath === undefined ? {} : { dsymPath: options.dsymPath }),
     ...(options.dsymPath === undefined ? {} : { dsymPath: options.dsymPath }),
   });
   if (!target.ok) return target;

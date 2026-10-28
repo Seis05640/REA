@@ -142,13 +142,13 @@ export abstract class BinarySessionRecords {
   ): Promise<
     Result<{ readonly path: string; readonly bytes: number }, AnalysisError>
   > {
-    return writeSnapshotFile(snapshot, path, overwrite, this.#writeResources);
+    return writeSnapshotFile(snapshot, path, overwrite, this.fileResources);
   }
 
   /** Retry retained target reads and snapshot files at the owning session shutdown. */
   async closeFileResources(): Promise<Result<null, AnalysisError>> {
     try {
-      await this.#writeResources.retryCleanup();
+      await this.fileResources.retryCleanup();
       return ok(null);
     } catch (cause: unknown) {
       const observation = ArtifactReaderFailure.cleanupObservation(

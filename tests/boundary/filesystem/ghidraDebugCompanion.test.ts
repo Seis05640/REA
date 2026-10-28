@@ -69,8 +69,12 @@ it("stages verified bytes under the snapshot name with private permissions and s
       staged_member: fixture.stagedMember,
     },
   });
-  expect(await readFile(fixture.stagedMember)).toEqual(fixture.bytes);
-  expect(await readFile(fixture.companion.memberPath)).toEqual(fixture.bytes);
+  expect((await readFile(fixture.stagedMember)).equals(fixture.bytes)).toBe(
+    true,
+  );
+  expect(
+    (await readFile(fixture.companion.memberPath)).equals(fixture.bytes),
+  ).toBe(true);
   if (process.platform !== "win32") {
     expect((await stat(fixture.stagedMember)).mode & 0o777).toBe(0o600);
     expect((await stat(fixture.companion.memberPath)).mode).toBe(
@@ -92,7 +96,9 @@ it("rejects a changed digest and removes the partial staged bundle while preserv
     code: "ENOENT",
   });
   expect(await readdir(fixture.runtime)).toEqual([]);
-  expect(await readFile(fixture.companion.memberPath)).toEqual(fixture.bytes);
+  expect(
+    (await readFile(fixture.companion.memberPath)).equals(fixture.bytes),
+  ).toBe(true);
 });
 
 it("bounds a grown member by its admitted size and cleans the staged copy", async () => {
@@ -105,7 +111,9 @@ it("bounds a grown member by its admitted size and cleans the staged copy", asyn
     ),
   ).rejects.toThrow("grew beyond its admitted size");
   expect(await readdir(fixture.runtime)).toEqual([]);
-  expect(await readFile(fixture.companion.memberPath)).toEqual(fixture.bytes);
+  expect(
+    (await readFile(fixture.companion.memberPath)).equals(fixture.bytes),
+  ).toBe(true);
 });
 
 it("cleans partial staging after cancellation without changing the selected member", async () => {
@@ -121,7 +129,9 @@ it("cleans partial staging after cancellation without changing the selected memb
     ),
   ).rejects.toMatchObject({ name: "AbortError" });
   expect(await readdir(fixture.runtime)).toEqual([]);
-  expect(await readFile(fixture.companion.memberPath)).toEqual(fixture.bytes);
+  expect(
+    (await readFile(fixture.companion.memberPath)).equals(fixture.bytes),
+  ).toBe(true);
 });
 
 it("reads a UUID after a sparse command span above the former allocation ceiling", async () => {

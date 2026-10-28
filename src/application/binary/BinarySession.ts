@@ -482,6 +482,7 @@ export class BinarySession
           current: this.#active,
           path,
           options: admitted,
+          resources: this.fileResources,
           stagedSnapshotMatches: (target, profile) =>
             this.matchesSnapshot(target, profile),
         }),

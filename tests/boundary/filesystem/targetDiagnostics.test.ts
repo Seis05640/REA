@@ -834,7 +834,7 @@ describe("caller-selected and inferred target interpretation", () => {
         ok: true,
         value: { kind: "database", format: "analysis-database" },
       });
-      expect(await readFile(databasePath)).toEqual(bytes);
+      expect((await readFile(databasePath)).equals(bytes)).toBe(true);
     },
   );
 

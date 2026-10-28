@@ -86,28 +86,6 @@ const subjectBaseSchema = z.object({
   sha256: digestSchema,
 });
 const subjectSchema = withEvidenceSubjectDeclaration(subjectBaseSchema);
-const subjectFormatSchema = z.enum([
-  ...formatSchema.options,
-  "hopper",
-  "directory",
-  "file",
-  "unknown",
-  "javascript-bundle",
-  "entitlements",
-]);
-// Snapshot entries retain the same raw-only architecture boundary as targets.
-const subjectSchema = z.discriminatedUnion("format", [
-  subjectBaseSchema.extend({
-    format: subjectFormatSchema.exclude(["raw-binary"]),
-    architecture: architectureSchema
-      .exclude([...RAW_ONLY_ARCHITECTURES])
-      .nullable(),
-  }),
-  subjectBaseSchema.extend({
-    format: z.literal("raw-binary"),
-    architecture: architectureSchema.nullable(),
-  }),
-]);
 /** Companion identity that partitions session and snapshot reuse by dSYM. */
 const debugCompanionSchema = z.object({
   source_path: z.string(),
@@ -402,17 +380,26 @@ export const snapshotTarget = (target: BinaryTarget): AnalysisSnapshotTarget =>
         sha256: target.sha256,
         kind: target.kind,
         architecture: target.architecture,
-        debug_companion: machOCompanionIdentity(target),
+        debug_companion: null,
         format: target.format,
         entry_point: target.entryPoint,
       }
-    : {
-        sha256: target.sha256,
-        kind: target.kind,
-        architecture: target.architecture ?? null,
-        debug_companion: machOCompanionIdentity(target),
-        format: target.format,
-      };
+    : target.format === "gamecube-dol"
+      ? {
+          sha256: target.sha256,
+          kind: target.kind,
+          architecture: target.architecture,
+          debug_companion: null,
+          format: target.format,
+          entry_point: target.entryPoint,
+        }
+      : {
+          sha256: target.sha256,
+          kind: target.kind,
+          architecture: target.architecture ?? null,
+          debug_companion: machOCompanionIdentity(target),
+          format: target.format,
+        };
 
 /** A dSYM change is a different analysis input, not the same target. */
 const machOCompanionIdentity = (

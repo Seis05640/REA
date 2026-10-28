@@ -503,39 +503,6 @@ export const managedWorkflowOutputSchemas = {
   ),
 };
 
-const lifecycleTargetFields = {
-  path: z.string(),
-  kind: targetKindSchema,
-  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-};
-const detectedLifecycleTargetSchema = z.object({
-  ...lifecycleTargetFields,
-  format: targetFormatSchema.exclude(["raw-binary"]),
-  architecture: z
-    .enum(BINARY_ARCHITECTURES)
-    .exclude([...RAW_ONLY_ARCHITECTURES])
-    .nullable(),
-  debug_companion: z
-    .object({
-      source_path: z.string(),
-      uuid: z.string(),
-      member_sha256: z.string(),
-    })
-    .optional()
-    .describe(
-      "Caller-selected dSYM companion admitted for this Mach-O target; present only when one matched.",
-    ),
-});
-const rawLifecycleTargetSchema = z.object({
-  ...lifecycleTargetFields,
-  format: z.literal("raw-binary"),
-  kind: z.literal("executable"),
-  architecture: binaryArchitectureSchema,
-  entry_point: rawBinaryEntryPointSchema.describe(
-    "Canonical caller-selected address where raw file offset 0 is mapped and execution is seeded.",
-  ),
-});
-
 /** Exact structured-content schemas for target lifecycle operations. */
 export const sessionOutputSchemas = {
   open_binary: lifecycleResultOf(

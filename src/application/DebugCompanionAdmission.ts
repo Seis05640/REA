@@ -12,11 +12,9 @@ import {
   NonRegularFileReadError,
   RegularFileChangedError,
 } from "../filesystem/RegularFile.js";
+import { withRegularFile } from "./RegularFileRead.js";
+import { RegularFileCleanupFailure } from "../filesystem/OwnedRegularFile.js";
 import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
-import {
-  RegularFileCleanupFailure,
-  withRegularFile,
-} from "./RegularFileRead.js";
 import {
   readFatContainerHeader,
   validateFatSlice,
@@ -99,6 +97,8 @@ const CPU_TYPES: Readonly<Record<BinaryArchitecture, readonly number[]>> = {
   hexagon: [],
   m68k: [],
   powerpc: [],
+  // arm64_32 (watchOS) has its own cputype but no distinct dSYM family here.
+  arm64_32: [0x0100000c],
 };
 
 /** Admitted identity of a caller-selected dSYM companion. */
