@@ -322,9 +322,25 @@ it("requires top-level filesystem facts to match their checkpoints", () => {
     ),
   };
   expect(parseProcessCapture(consistent)).toEqual(consistent);
+  const withCheckpointFiles = (
+    name: string,
+    files: (typeof baseline.files_before)[number][],
+  ) =>
+    consistent.filesystem_checkpoints.map((checkpoint) =>
+      checkpoint.name === name ? { ...checkpoint, files } : checkpoint,
+    );
   for (const contradictory of [
     topLevelOnly,
     { ...consistent, filesystem_effects: [] },
+    // File lists alone disagree; effects still match.
+    {
+      ...consistent,
+      filesystem_checkpoints: withCheckpointFiles("after_settlement", []),
+    },
+    {
+      ...consistent,
+      filesystem_checkpoints: withCheckpointFiles("before", [file]),
+    },
     {
       ...baseline,
       filesystem_checkpoints: baseline.filesystem_checkpoints.map(
