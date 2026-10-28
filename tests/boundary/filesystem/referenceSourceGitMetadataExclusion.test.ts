@@ -23,6 +23,29 @@ const importTree = async (
   return result.value;
 };
 
+const fixtureGit = (
+  directory: string,
+  configuration: string,
+  args: readonly string[],
+) =>
+  execFileOutput(
+    "git",
+    ["-c", `core.hooksPath=${join(configuration, "no-hooks")}`, ...args],
+    {
+      cwd: directory,
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([name]) => !name.toUpperCase().startsWith("GIT_"),
+          ),
+        ),
+        GIT_CONFIG_GLOBAL: join(configuration, "gitconfig"),
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TEMPLATE_DIR: join(configuration, "no-template"),
+      },
+    },
+  );
+
 it("excludes Git metadata files and directories without broadening directory-only defaults", () => {
   const matcher = ignore().add([...DEFAULT_REFERENCE_SOURCE_IGNORE_PATTERNS]);
   for (const path of [".git", ".git/", "nested/.git", "nested/.git/"])
@@ -40,14 +63,18 @@ describe.skipIf(process.platform === "win32")(
     it("keeps linked-worktree identities stable while retaining HEAD and ordinary-checkout provenance", async () => {
       const root = await createTestTempDirectory("rea-reference-git-metadata-");
       const repository = join(root, "repository");
+      await Promise.all([
+        mkdir(join(root, "no-hooks")),
+        mkdir(join(root, "no-template")),
+        writeFile(join(root, "gitconfig"), ""),
+      ]);
       await mkdir(join(repository, "src"), { recursive: true });
       await writeFile(
         join(repository, "src", "main.js"),
         "export const value = 7;\n",
       );
       await writeFile(join(repository, ".gitignore"), "*.log\n");
-      const git = (...args: string[]) =>
-        execFileOutput("git", args, { cwd: repository });
+      const git = (...args: string[]) => fixtureGit(repository, root, args);
       await git("init", "--initial-branch=main");
       await git("add", ".gitignore", "src/main.js");
       await git(
@@ -67,11 +94,7 @@ describe.skipIf(process.platform === "win32")(
       for (const worktree of [leftRoot, rightRoot]) {
         await git("worktree", "add", "--detach", worktree, head);
         expect(
-          (
-            await execFileOutput("git", ["status", "--porcelain"], {
-              cwd: worktree,
-            })
-          ).stdout,
+          (await fixtureGit(worktree, root, ["status", "--porcelain"])).stdout,
         ).toBe("");
       }
       expect(await readFile(join(leftRoot, ".git"), "utf8")).not.toBe(
