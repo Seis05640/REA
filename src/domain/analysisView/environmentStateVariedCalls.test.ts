@@ -7,11 +7,13 @@ import {
 import {
   CLEARED_THEN_OMITTED_KEPT_ROWS,
   DONE_CLOCK_ROWS,
+  DONE_MIXED_ROWS,
   DONE_ZONE_ROWS,
   OMITTED_KEPT_THEN_CLEARED_ROWS,
   FEWER_MEMBERS_ROWS,
   NUMBERED_UNLESS_SENT_ROWS,
   NUMBERED_THEN_SENT_ROWS,
+  SENT_THEN_DELETED_ROWS,
   KEPT_THEN_CLEARED_ROWS,
   CLEARED_THEN_KEPT_ROWS,
   PUT_CLEARS_ROWS,
@@ -160,6 +162,22 @@ describe("writes whose calls send different members", () => {
     expect(planOf(rows, "post_bundles")).toMatchObject({
       served: false,
       reason: "unexplained-change",
+    });
+  });
+});
+
+describe("writes replay holds as serving does", () => {
+  it("serves no create numbered below a sent value it deleted, as serving counts past it", () => {
+    // Serving keeps the largest order sent, 9, and would number the last create 10.
+    expect(planOf(SENT_THEN_DELETED_ROWS, "post_bundles")).toMatchObject({
+      served: false,
+    });
+  });
+
+  it("serves no update whose read spells its clock otherwise than the read the plan keeps", () => {
+    // Serving stores every update's clock as the first read spells it, to the millisecond.
+    expect(planOf(DONE_MIXED_ROWS, "patch_tasks_by_id")).toMatchObject({
+      served: false,
     });
   });
 });

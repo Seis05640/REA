@@ -98,6 +98,58 @@ export const DONE_CLOCK_ROWS: readonly TimedCaptureRow[] = (() => {
   ];
 })();
 
+/** Tasks marked done, each answer to the nanosecond: the first read spells `done_at` to the millisecond, the second to the second. */
+export const DONE_MIXED_ROWS: readonly TimedCaptureRow[] = DONE_CLOCK_ROWS.map(
+  (row, index) =>
+    index === 4 && row[0] === "GET"
+      ? [
+          row[0],
+          row[1],
+          {
+            ...(row[2] as Entity),
+            done_at: String((row[2] as Entity)["done_at"]).replace(
+              "Z",
+              ".001Z",
+            ),
+          },
+        ]
+      : row,
+);
+
+/** Bundles numbered unless an order is sent: 2 left out, 9 and 4 sent, the 9 deleted, then one left out the application numbers 5. */
+export const SENT_THEN_DELETED_ROWS: readonly TimedCaptureRow[] = (() => {
+  const bundle = (id: number, name: string, order: number): Entity => ({
+    id,
+    name,
+    order,
+  });
+  const seeds = [bundle(1, "Alpha", 0), bundle(2, "Bravo", 1)];
+  const [charlie, delta, echo, foxtrot] = [
+    bundle(3, "Charlie", 2),
+    bundle(4, "Delta", 9),
+    bundle(5, "Echo", 4),
+    bundle(6, "Foxtrot", 5),
+  ];
+  return [
+    ["GET", "/api/bundles", seeds],
+    ["GET", "/api/bundles/1", seeds[0]!],
+    ["POST", "/api/bundles", charlie, 201, { name: "Charlie" }],
+    ["GET", "/api/bundles/3", charlie],
+    ["GET", "/api/bundles", [...seeds, charlie]],
+    ["POST", "/api/bundles", delta, 201, { name: "Delta", order: 9 }],
+    ["GET", "/api/bundles/4", delta],
+    ["GET", "/api/bundles", [...seeds, charlie, delta]],
+    ["POST", "/api/bundles", echo, 201, { name: "Echo", order: 4 }],
+    ["GET", "/api/bundles/5", echo],
+    ["GET", "/api/bundles", [...seeds, charlie, delta, echo]],
+    ["DELETE", "/api/bundles/4", null, 204],
+    ["GET", "/api/bundles", [...seeds, charlie, echo]],
+    ["POST", "/api/bundles", foxtrot, 201, { name: "Foxtrot" }],
+    ["GET", "/api/bundles/6", foxtrot],
+    ["GET", "/api/bundles", [...seeds, charlie, echo, foxtrot]],
+  ];
+})();
+
 /** Tasks marked done: each answer stamps `done_at` to the millisecond in `Z`, the read after it to the second in `+00:00`. */
 export const DONE_ZONE_ROWS: readonly TimedCaptureRow[] = (() => {
   const task = (id: number, title: string): Entity => ({

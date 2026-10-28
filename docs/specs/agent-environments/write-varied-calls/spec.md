@@ -28,15 +28,17 @@ the application breaks ties in. The skill now spaces creates.
 - **Update members.** A later update narrows the plan's required members to those every call sent.
 - **Numbered unless sent.** A member one create sent and stored as sent, and another left out and the application
   numbered one past the others, is a `sequence` with `sent`, in either order: serving stores the value a call sends,
-  else the next number, and a later call that sends it must have stored what it sent.
+  else the next number, and a later call that sends it must have stored what it sent. The next number follows the
+  largest value any call took, a deleted entity's included, in replay as in serving.
 - **Cleared by a PUT.** A field a `PUT` left out that the application cleared to an empty value (`""`, `null`, `false`,
   `[]` or `{}`) is that member's default (`body.defaults`) when every call that left it out stored that value, as its
   answer shows it or, where the answer leaves the member out, the read after it: serving stores it for an update that
   leaves the member out. Calls that left it out and stored it otherwise withhold the plan.
 - **Update clocks.** The state holds an update's clock as the first read of the entity after it spells the same instant
   at a coarser precision in the same zone and separator, as it already does for nested clocks: replay and serving store
-  that spelling by one rule, serving from the read the plan keeps as `observation.read`, while answers keep the update's
-  own. A create's clocks stay as answered, as serving makes them.
+  every update's clocks in the spelling of the read the plan keeps as `observation.read`, so a later update whose read
+  spells them otherwise contradicts the plan, while answers keep the update's own. A create's clocks stay as answered,
+  as serving makes them.
 - **Skill.** Recordings leave more than a second between two creates, as between a create and its first edit.
 
 Plans and views that need none of this are unchanged.

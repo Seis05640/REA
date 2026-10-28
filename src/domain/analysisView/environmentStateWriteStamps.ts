@@ -11,7 +11,6 @@ import {
 } from "./environmentStateRules.js";
 import {
   laterObservation,
-  respelledInstant,
   type ObservationSearch,
 } from "./environmentStateWriteObserve.js";
 import { singleQueryValues } from "../recordedTransportUrl.js";
@@ -705,8 +704,7 @@ export const pinnedEchoes = (
 };
 
 /**
- * A write's fields as stored: each nested clock as the first later read of the entity shows it restamped, and, for an
- * update, each clock as that read spells the same instant at a coarser precision (as serving stores it), else as the
+ * A write's fields as stored: each nested clock as the first later read of the entity shows it restamped, else as the
  * call showed it.
  */
 export const restampedFields = (
@@ -714,26 +712,13 @@ export const restampedFields = (
   target: Parameters<typeof laterObservation>[1],
   shown: JsonObject,
   rules: readonly FieldRule[],
-  update: boolean,
 ): JsonObject => {
   const nested = rules.flatMap((rule) =>
     rule.rule === "nested-clock" ? [rule] : [],
   );
-  // Serving respells only an update's clocks, so a create keeps them as answered.
-  const clocks = update
-    ? rules.flatMap((rule) => (rule.rule === "clock" ? [rule.field] : []))
-    : [];
-  if (nested.length === 0 && clocks.length === 0) return shown;
+  if (nested.length === 0) return shown;
   const later = laterObservation(search, target);
   const fields = { ...shown };
-  for (const field of clocks) {
-    const read = ownMember(later?.object, field);
-    if (
-      respelledInstant(ownMember(shown, field), read) &&
-      readSpellsCoarser(ownMember(shown, field), read)
-    )
-      setOwnMember(fields, field, read!);
-  }
   for (const rule of nested) {
     const read = storedRestamp(
       ownMember(shown, rule.field),
