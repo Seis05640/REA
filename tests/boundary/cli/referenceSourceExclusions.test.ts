@@ -200,6 +200,7 @@ describe.skipIf(process.platform === "win32")(
         );
         expect(omittedGraph.exclusions).toContainEqual({
           path: "keep.log",
+          entry_kind: "file",
           reason: "default-ignored",
           pattern: "*.log",
         });
@@ -209,26 +210,31 @@ describe.skipIf(process.platform === "win32")(
         expect(selectedGraph.exclusions).toEqual([
           {
             path: "logs/application.log",
+            entry_kind: "file",
             reason: "default-ignored",
             pattern: "*.log",
           },
           {
             path: "notes.tmp",
+            entry_kind: "file",
             reason: "caller-excluded",
             pattern: "*.tmp",
           },
           {
             path: "private.txt",
+            entry_kind: "file",
             reason: "configured-secret",
             pattern: "private.txt",
           },
           {
             path: "project.tmp",
+            entry_kind: "file",
             reason: "project-ignored",
             pattern: "project.tmp",
           },
           {
             path: "skip-me",
+            entry_kind: "directory",
             reason: "caller-excluded",
             pattern: "skip-me/",
           },
