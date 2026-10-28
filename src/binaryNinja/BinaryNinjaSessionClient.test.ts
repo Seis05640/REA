@@ -803,3 +803,37 @@ it.each(["list_procedures", "health"] as const)(
     }
   },
 );
+
+it.each([
+  { operation: "procedure_pseudo_code", tool: "bn_function_decompile" },
+  { operation: "procedure_assembly", tool: "bn_function_disassembly" },
+] as const)(
+  "rejects missing rendered lines from $tool",
+  async ({ operation, tool }) => {
+    const { client, producer } = await fixture();
+    const original = producer.call.bind(producer);
+    producer.call = async (name, args) => {
+      const reply = await original(name, args);
+      if (name !== tool) return reply;
+      const lines = reply.text!.split("\n");
+      const start = lines.findIndex((line) => line.startsWith("````"));
+      if (start < 0) throw new Error("Fixture expected a rendered code block");
+      lines.splice(start + 1, 1);
+      return { ...reply, text: lines.join("\n") };
+    };
+    try {
+      const result = await client.execute(operation, { procedure: "main" });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          _tag: "AnalysisProtocolError",
+          partialObservation: { normalized_result: { status: "partial" } },
+        },
+      });
+      if (!result.ok)
+        expect(result.error.message).toContain("lines for a page count");
+    } finally {
+      expect((await client.close()).ok).toBe(true);
+    }
+  },
+);

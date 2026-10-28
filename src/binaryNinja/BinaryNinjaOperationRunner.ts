@@ -221,10 +221,19 @@ export class BinaryNinjaOperationRunner {
   ): Promise<string[]> {
     const lines: string[] = [];
     let stale = false;
-    await this.pages(tool, this.functionArguments(fn), (document) => {
+    await this.pages(tool, this.functionArguments(fn), (document, page) => {
       this.verifyFunctionPage(tool, fn, document.metadata);
       if (document.metadata.needsUpdate === true) stale = true;
-      lines.push(...parseBinaryNinjaCodeBlock(document.body, languages, tool));
+      const pageLines = parseBinaryNinjaCodeBlock(
+        document.body,
+        languages,
+        tool,
+      );
+      if (pageLines.length !== page.count)
+        throw new AnalysisProtocolError(
+          `Binary Ninja ${tool} rendered ${String(pageLines.length)} lines for a page count of ${String(page.count)}.`,
+        );
+      lines.push(...pageLines);
     });
     if (stale)
       this.limitations.push(
