@@ -806,7 +806,8 @@ required, and an echoed member a call left out takes the value that call stored
 (`body.defaults`). A member one call sent and stored as sent, and another left
 out and the application numbered one past the others, takes the value a call
 sends, else that number (a `sequence` with `sent`), whichever call came first;
-a later call that sends it must have stored what it sent. A member a create sent empty (`""`, `null`, `false`, `[]` or
+a later call that sends it must have stored what it sent, and the next number
+follows the largest value any call took, a deleted entity's included. A member a create sent empty (`""`, `null`, `false`, `[]` or
 `{}`), as a form sends a field left as it was, is not required: a call that
 leaves it out is applied as sending that value (`body.blank`), unless a call
 that left it out showed a default, which it then keeps. A call may send it as any
@@ -883,10 +884,11 @@ with the query its first call sent, which serving applies to a call that
 leaves a parameter out and the catalog advertises as required. Every member every call sent is required, except by `PATCH` and
 `POST` updates and members a create sent empty. The state holds an update's
 clock as the first read of the entity after it spells the same instant at a
-coarser precision in the same zone and separator: replay and serving store that
-spelling by one rule, serving from the read the plan keeps as
-`observation.read`, while answers keep the update's own; a create's clocks stay
-as answered. A `PUT` default must agree with what every call that left the
+coarser precision in the same zone and separator: replay and serving store every
+update's clocks in the spelling of the read the plan keeps as
+`observation.read`, so a later update whose read spells them otherwise
+contradicts the plan, while answers keep the update's own; a create's clocks
+stay as answered. A `PUT` default must agree with what every call that left the
 member out stored, as its answer shows it or, where the answer leaves it out,
 the read after the call.
 

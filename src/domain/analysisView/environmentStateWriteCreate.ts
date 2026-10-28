@@ -716,27 +716,35 @@ const fitClocks = (draft: WriteDraft, fields: JsonObject): void => {
   noteFixedWidths(draft.fixedWidth, fields);
 };
 
-/** Record the values a create's sequences took, which the next call follows. */
+/** Record the values a create's sequences took, which the next call follows; as serving does, the largest stays, so a lower sent value does not lower it. */
 const takeSequences = (
   draft: WriteDraft,
   created: Pick<StateEntity, "collection" | "fields">,
 ): void => {
-  for (const { rule, key } of sequencesOf(draft, created.collection)) {
-    const value = sequenceNumber(
-      ownMember(created.fields, rule.field),
-      ownMember(draft.observed, rule.field),
+  const take = (key: string, value: number | undefined) => {
+    if (value === undefined) return;
+    const taken = draft.sequences.get(key);
+    draft.sequences.set(
+      key,
+      taken === undefined ? value : Math.max(taken, value),
     );
-    if (value !== undefined) draft.sequences.set(key, value);
-  }
+  };
+  for (const { rule, key } of sequencesOf(draft, created.collection))
+    take(
+      key,
+      sequenceNumber(
+        ownMember(created.fields, rule.field),
+        ownMember(draft.observed, rule.field),
+      ),
+    );
   for (const rule of draft.plan.rules) {
     if (rule.rule !== "made-object") continue;
     const made = ownMember(created.fields, rule.field);
     for (const { member } of rule.counts) {
-      const value = isObject(made)
-        ? sequenceNumber(ownMember(made, member))
-        : undefined;
-      if (value !== undefined)
-        draft.sequences.set(madeKey(rule.field, member), value);
+      take(
+        madeKey(rule.field, member),
+        isObject(made) ? sequenceNumber(ownMember(made, member)) : undefined,
+      );
     }
   }
 };
@@ -977,7 +985,6 @@ export const applyCreate = (
     itemReads(context, { type, idField, collection, id }),
     fields.value,
     draft.plan.rules,
-    false,
   );
   const inserted = insertCreated(context, draft, entity(stored, id));
   context.io.retain(collection.length * 2 + 16);

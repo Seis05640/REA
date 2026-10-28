@@ -52,11 +52,13 @@ import {
   shownBefore,
   viewFields,
   type Observed,
+  type ObservationSearch,
   type ObservedRead,
 } from "./environmentStateWriteObserve.js";
 import {
   plannedBody,
   readSpellsCoarser,
+  readSpelledClocks,
   restampedFields,
 } from "./environmentStateWriteStamps.js";
 import { readClock } from "./environmentStateWriteValues.js";
@@ -527,6 +529,18 @@ const spelledReadBack = (
     : undefined;
 };
 
+/** The object the plan's kept read-back shows, which serving spells every update's clocks by. */
+const keptRead = (
+  search: ObservationSearch,
+  read: ObservedRead | undefined,
+): JsonObject | undefined =>
+  read === undefined
+    ? undefined
+    : search.withBody(read.ordinal, (body) => {
+        const object = body === undefined ? undefined : at(body, read.pointer);
+        return isObject(object) ? object : undefined;
+      });
+
 /** Build an update plan from its exemplar, or add what a later call showed. */
 const buildUpdate = (
   context: EffectContext,
@@ -762,13 +776,17 @@ export const updateEntity = (
     { before: entity.fields, after: after.object, sent: body, kept, read },
     explained.unstamped,
   );
-  // Response reproducibility is established before the read owner adopts a stored clock spelling.
-  const stored = restampedFields(
-    searchFrom(context, step),
-    itemReads(context, { type, idField, collection, id }),
-    written.value,
+  // Response reproducibility is established before the read owner adopts a stored clock spelling; serving spells every update's clocks as the plan's kept read-back does, so replay does too.
+  const search = searchFrom(context, step);
+  const stored = readSpelledClocks(
     draft.plan.rules,
-    true,
+    restampedFields(
+      search,
+      itemReads(context, { type, idField, collection, id }),
+      written.value,
+      draft.plan.rules,
+    ),
+    keptRead(search, draft.plan.observation?.read),
   );
   context.io.retain(
     64 +
